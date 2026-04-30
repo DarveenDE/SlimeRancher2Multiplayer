@@ -12,39 +12,59 @@ public sealed class PlayerFXHandler : BaseClientPacketHandler<PlayerFXPacket>
 
     protected override void Handle(PlayerFXPacket packet)
     {
-        handlingPacket = true;
+        if (!IsPlayerSoundDictionary.TryGetValue(packet.FX, out var isSound))
+            return;
+
         try
         {
-            if (!IsPlayerSoundDictionary[packet.FX])
+            if (!isSound)
             {
-                var fxPrefab = fxManager.PlayerFXMap[packet.FX];
+                if (!fxManager.PlayerFXMap.TryGetValue(packet.FX, out var fxPrefab) || !fxPrefab)
+                    return;
 
-                FXHelpers.SpawnAndPlayFX(fxPrefab, packet.Position, Quaternion.identity);
+                RunWithHandlingPacket(() => FXHelpers.SpawnAndPlayFX(fxPrefab, packet.Position, Quaternion.identity));
                 return;
             }
 
-            var cue = fxManager.PlayerAudioCueMap[packet.FX];
+            if (!playerObjects.TryGetValue(packet.Player, out var playerObject) || !playerObject)
+                return;
 
-            if (ShouldPlayerSoundBeTransientDictionary[packet.FX])
+            if (!fxManager.PlayerAudioCueMap.TryGetValue(packet.FX, out var cue) || !cue)
+                return;
+
+            var volume = PlayerSoundVolumeDictionary.TryGetValue(packet.FX, out var configuredVolume)
+                ? configuredVolume
+                : 1f;
+
+            var isTransient = ShouldPlayerSoundBeTransientDictionary.TryGetValue(packet.FX, out var transient)
+                && transient;
+
+            if (isTransient)
             {
-                RemoteFXManager.PlayTransientAudio(cue, playerObjects[packet.Player].transform.position,
-                    PlayerSoundVolumeDictionary[packet.FX]);
+                RemoteFXManager.PlayTransientAudio(cue, playerObject.transform.position, volume);
             }
             else
             {
-                var playerAudio = playerObjects[packet.Player].GetComponent<SECTR_PointSource>();
+                var playerAudio = playerObject.GetComponent<SECTR_PointSource>();
+                if (!playerAudio)
+                    return;
 
+                var shouldLoop = DoesPlayerSoundLoopDictionary.TryGetValue(packet.FX, out var loop)
+                    && loop;
+
+                RunWithHandlingPacket(() =>
+                {
                 playerAudio.Cue = cue;
-                playerAudio.Loop = DoesPlayerSoundLoopDictionary[packet.FX];
+                    playerAudio.Loop = shouldLoop;
 
-                playerAudio.instance.Volume = PlayerSoundVolumeDictionary[packet.FX];
-                playerAudio.Play();
+                    playerAudio.instance.Volume = volume;
+                    playerAudio.Play();
+                });
             }
         }
         catch
         {
             // SrLogger.LogWarning($"This \"error\" is NOT serious, DO NOT REPORT IT!\n{ex}");
         }
-        handlingPacket = false;
     }
 }

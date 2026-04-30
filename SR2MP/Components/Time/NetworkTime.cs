@@ -19,12 +19,14 @@ public sealed class NetworkTime : MonoBehaviour
 
     private void Update()
     {
+        PerformanceDiagnostics.RecordNetworkTimeUpdate();
         sendTimer += UnityEngine.Time.deltaTime;
 
         if (sendTimer < Timers.TimeSyncTimer)
             return;
 
         sendTimer = 0;
+        PerformanceDiagnostics.RecordNetworkTimeSend();
 
         var packet = new WorldTimePacket
         {

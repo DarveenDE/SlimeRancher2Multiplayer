@@ -58,6 +58,7 @@ public enum PacketType : byte
     RefineryItemCounts = 53,      // Both Ways                                                                          Refinery/fabricator material counts
     LandPlotAmmoUpdate = 54,      // Both Ways                                                                          Silo and plort collector storage counts
     LandPlotFeederState = 55,     // Both Ways                                                                          Auto-feeder speed and timer state
+    GardenGrowthState = 56,       // Both Ways                                                                          Garden spawn timing and produce harvest state
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

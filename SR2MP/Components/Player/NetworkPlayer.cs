@@ -7,6 +7,7 @@ using SR2MP.Client.Models;
 using SR2MP.Components.FX;
 using SR2MP.Components.Utils;
 using SR2MP.Shared.Managers;
+using SR2MP.Shared.Utils;
 
 using static SR2E.ContextShortcuts;
 using static SR2MP.Shared.Utils.Timers;
@@ -119,6 +120,8 @@ public partial class NetworkPlayer : MonoBehaviour
 
     public void Update()
     {
+        PerformanceDiagnostics.RecordNetworkPlayerUpdate(IsLocal);
+
         if (model == null)
         {
             model = playerManager.GetPlayer(ID) ?? playerManager.AddPlayer(ID);
@@ -152,6 +155,7 @@ public partial class NetworkPlayer : MonoBehaviour
 
         if (IsLocal)
         {
+            PerformanceDiagnostics.RecordNetworkPlayerLocalTick();
             RemotePlayerManager.SendPlayerUpdate(
                 position: transform.position,
                 rotation: transform.eulerAngles.y,

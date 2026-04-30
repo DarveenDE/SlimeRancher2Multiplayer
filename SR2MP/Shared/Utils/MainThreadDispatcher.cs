@@ -59,6 +59,7 @@ public sealed class MainThreadDispatcher : MonoBehaviour
         }
 
         var backlog = Math.Max(0, System.Threading.Volatile.Read(ref queuedActionCount));
+        PerformanceDiagnostics.RecordMainThreadDispatcher(processed, backlog);
         if (backlog > 0 && Time.realtimeSinceStartup >= nextBacklogLogTime)
         {
             nextBacklogLogTime = Time.realtimeSinceStartup + 5f;

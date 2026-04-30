@@ -1,6 +1,7 @@
 using SR2MP.Packets.Utils;
 using System.IO.Compression;
 using System.Collections.Concurrent;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Shared.Managers;
 
@@ -36,11 +37,13 @@ public static class PacketChunkManager
     private const int MaxChunkBytes = 500;
     private const int MaxTotalChunks = 8192;
     private const int MaxMergedPacketBytes = MaxChunkBytes * MaxTotalChunks;
-    private const int CompressionThreshold = 30;
+    // ActorUpdatePackets are ~64 bytes uncompressed; GZip overhead below ~200 bytes produces larger output.
+    private const int CompressionThreshold = 200;
     private static readonly TimeSpan PacketTimeout = TimeSpan.FromSeconds(30);
 
     private static int packetCounter = 0;
     private const int CleanupInterval = 100;
+    private static readonly List<string> _staleKeys = new();
 
     internal static bool TryMergePacket(PacketType packetType, byte[] data, ushort chunkIndex,
         ushort totalChunks, ushort packetId, string senderKey, PacketReliability reliability,
@@ -156,6 +159,10 @@ public static class PacketChunkManager
         ushort sequenceNumber, out ushort packetId)
     {
         var packetType = data[0];
+        var originalLength = data.Length;
+        var compressionAttempted = false;
+        var compressedUsed = false;
+        var compressionTicks = 0L;
 
         // Thread-safe packet ID generation
         int id = Interlocked.Increment(ref nextPacketId);
@@ -172,10 +179,14 @@ public static class PacketChunkManager
         // Compress if threshold is reached
         if (data.Length > CompressionThreshold)
         {
+            compressionAttempted = true;
+            var compressionStart = PerformanceDiagnostics.IsEnabled ? PerformanceDiagnostics.GetTimestamp() : 0;
             var compressed = Compress(data);
+            compressionTicks = PerformanceDiagnostics.GetElapsedTicks(compressionStart);
             if (compressed.Length < data.Length * 0.9f)
             {
                 data = compressed;
+                compressedUsed = true;
             }
         }
 
@@ -219,17 +230,30 @@ public static class PacketChunkManager
             result[index] = buffer;
         }
 
+        PerformanceDiagnostics.RecordPacketSplit(
+            packetType,
+            reliability,
+            originalLength,
+            data.Length,
+            chunkCount,
+            compressionAttempted,
+            compressedUsed,
+            compressionTicks);
+
         return result;
     }
 
     private static void CleanupStalePackets()
     {
         var now = DateTime.UtcNow;
-        var keysToRemove = (from kvp in IncompletePackets
-                           where now - kvp.Value.lastChunkTime > PacketTimeout
-                           select kvp.Key).ToList();
+        _staleKeys.Clear();
+        foreach (var kvp in IncompletePackets)
+        {
+            if (now - kvp.Value.lastChunkTime > PacketTimeout)
+                _staleKeys.Add(kvp.Key);
+        }
 
-        foreach (var key in keysToRemove)
+        foreach (var key in _staleKeys)
         {
             if (IncompletePackets.TryRemove(key, out var packet))
             {

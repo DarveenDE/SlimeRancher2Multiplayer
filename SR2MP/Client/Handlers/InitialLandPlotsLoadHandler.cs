@@ -14,18 +14,22 @@ public sealed class PlotsLoadHandler : BaseClientPacketHandler<InitialLandPlotsP
     {
         foreach (var plot in packet.Plots)
         {
-            var model = SceneContext.Instance.GameModel.landPlots[plot.ID];
+            if (!SceneContext.Instance.GameModel.landPlots.TryGetValue(plot.ID, out var model) || model == null)
+                continue;
 
             if (model.gameObj)
             {
-                handlingPacket = true;
-                var location = model.gameObj.GetComponent<LandPlotLocation>();
-                var landPlotComponent = model.gameObj.GetComponentInChildren<LandPlot>();
-                location.Replace(landPlotComponent, GameContext.Instance.LookupDirector._plotPrefabDict[plot.Type]);
+                RunWithHandlingPacket(() =>
+                {
+                    var location = model.gameObj.GetComponent<LandPlotLocation>();
+                    var landPlotComponent = model.gameObj.GetComponentInChildren<LandPlot>();
+                    if (location && landPlotComponent && GameContext.Instance.LookupDirector._plotPrefabDict.TryGetValue(plot.Type, out var prefab))
+                        location.Replace(landPlotComponent, prefab);
 
-                var landPlotComponent2 = model.gameObj.GetComponentInChildren<LandPlot>();
-                landPlotComponent2.ApplyUpgrades(plot.Upgrades.Cast<CppCollections.IEnumerable<LandPlot.Upgrade>>(), false);
-                handlingPacket = false;
+                    var landPlotComponent2 = model.gameObj.GetComponentInChildren<LandPlot>();
+                    if (landPlotComponent2 && plot.Upgrades != null)
+                        landPlotComponent2.ApplyUpgrades(plot.Upgrades.Cast<CppCollections.IEnumerable<LandPlot.Upgrade>>(), false);
+                });
             }
 
             model.typeId = plot.Type;
@@ -34,29 +38,15 @@ public sealed class PlotsLoadHandler : BaseClientPacketHandler<InitialLandPlotsP
             switch (plot.Data)
             {
                 case InitialLandPlotsPacket.GardenData garden:
-                    handlingPacket = true;
-                    try
-                    {
-                        GardenPlotSyncManager.ApplyRemoteState(plot.ID, garden.HasCrop, garden.Crop, "initial garden plot");
-                    }
-                    finally { handlingPacket = false; }
+                    RunWithHandlingPacket(() =>
+                        GardenPlotSyncManager.ApplyRemoteState(plot.ID, garden.HasCrop, garden.Crop, "initial garden plot"));
                     break;
                 case InitialLandPlotsPacket.SiloData silo: break; // todo
             }
 
-            handlingPacket = true;
-            try
-            {
-                LandPlotAmmoSyncManager.ApplyAmmoSets(model, plot.AmmoSets, plot.ID);
-            }
-            finally { handlingPacket = false; }
+            RunWithHandlingPacket(() => LandPlotAmmoSyncManager.ApplyAmmoSets(model, plot.AmmoSets, plot.ID));
 
-            handlingPacket = true;
-            try
-            {
-                LandPlotFeederSyncManager.ApplyState(plot.ID, plot.FeederState, "initial feeder state");
-            }
-            finally { handlingPacket = false; }
+            RunWithHandlingPacket(() => LandPlotFeederSyncManager.ApplyState(plot.ID, plot.FeederState, "initial feeder state"));
         }
     }
 }

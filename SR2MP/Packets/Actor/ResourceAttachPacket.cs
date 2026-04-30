@@ -6,14 +6,14 @@ namespace SR2MP.Packets.Actor;
 public sealed class ResourceAttachPacket : IPacket
 {
     public ActorId ActorId { get; set; }
-    public string PlotID { get; set; }
+    public string PlotID { get; set; } = string.Empty;
     public int Joint { get; set; }
     public Vector3 SpawnerID { get; set; }
 
-    public SpawnResourceModel Model { get; set; }
+    public SpawnResourceModel Model { get; set; } = null!;
 
     public PacketType Type => PacketType.ResourceAttach;
-    public PacketReliability Reliability => PacketReliability.Reliable;
+    public PacketReliability Reliability => PacketReliability.ReliableOrdered;
 
     public void Serialise(PacketWriter writer)
     {

@@ -10,22 +10,36 @@ public static class OnSwitchActivated
     [HarmonyPostfix, HarmonyPatch(typeof(WorldStatePrimarySwitch), nameof(WorldStatePrimarySwitch.SetStateForAll))]
     public static void SetPrimary(WorldStatePrimarySwitch __instance, SwitchHandler.State state, bool immediate)
     {
+        if (__instance.SwitchDefinition == null || string.IsNullOrWhiteSpace(__instance.SwitchDefinition.ID))
+            return;
+
         SendPacket(state, __instance.SwitchDefinition.ID, immediate);
     }
     [HarmonyPostfix, HarmonyPatch(typeof(WorldStateSecondarySwitch), nameof(WorldStateSecondarySwitch.SetState))]
     public static void SetSecondary(WorldStateSecondarySwitch __instance, SwitchHandler.State state, bool immediate)
     {
+        if (__instance._primary == null
+            || __instance._primary.SwitchDefinition == null
+            || string.IsNullOrWhiteSpace(__instance._primary.SwitchDefinition.ID))
+        {
+            return;
+        }
+
         SendPacket(state, __instance._primary.SwitchDefinition.ID, immediate);
     }
     [HarmonyPostfix, HarmonyPatch(typeof(WorldStateInvisibleSwitch), nameof(WorldStateInvisibleSwitch.SetStateForAll))]
     public static void SetInvisible(WorldStateInvisibleSwitch __instance, SwitchHandler.State state, bool immediate)
     {
+        if (__instance.SwitchDefinition == null || string.IsNullOrWhiteSpace(__instance.SwitchDefinition.ID))
+            return;
+
         SendPacket(state, __instance.SwitchDefinition.ID, immediate);
     }
 
     private static void SendPacket(SwitchHandler.State state, string id, bool immediate)
     {
-        if (handlingPacket) return;
+        if (handlingPacket || (!Main.Server.IsRunning() && !Main.Client.IsConnected))
+            return;
 
         Main.SendToAllOrServer(new WorldSwitchPacket
         {

@@ -14,20 +14,27 @@ public sealed class WorldFXHandler : BasePacketHandler<WorldFXPacket>
 
     protected override void Handle(WorldFXPacket packet, IPEndPoint clientEp)
     {
-        if (!IsWorldSoundDictionary[packet.FX])
-        {
-            var fxPrefab = fxManager.WorldFXMap[packet.FX];
+        if (!IsWorldSoundDictionary.TryGetValue(packet.FX, out var isSound))
+            return;
 
-            handlingPacket = true;
-            try { FXHelpers.SpawnAndPlayFX(fxPrefab, packet.Position, Quaternion.identity); }
-            catch { }
-            handlingPacket = false;
+        if (!isSound)
+        {
+            if (!fxManager.WorldFXMap.TryGetValue(packet.FX, out var fxPrefab) || !fxPrefab)
+                return;
+
+            try { RunWithHandlingPacket(() => FXHelpers.SpawnAndPlayFX(fxPrefab, packet.Position, Quaternion.identity)); }
+            catch { return; }
         }
         else
         {
-            var cue = fxManager.WorldAudioCueMap[packet.FX];
+            if (!fxManager.WorldAudioCueMap.TryGetValue(packet.FX, out var cue) || !cue)
+                return;
 
-            RemoteFXManager.PlayTransientAudio(cue, packet.Position, WorldSoundVolumeDictionary[packet.FX]);
+            var volume = WorldSoundVolumeDictionary.TryGetValue(packet.FX, out var configuredVolume)
+                ? configuredVolume
+                : 1f;
+
+            RemoteFXManager.PlayTransientAudio(cue, packet.Position, volume);
         }
 
         Main.Server.SendToAllExcept(packet, clientEp);

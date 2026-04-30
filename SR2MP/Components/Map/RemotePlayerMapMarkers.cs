@@ -5,6 +5,7 @@ using Il2CppInterop.Runtime.Attributes;
 using MelonLoader;
 using SR2MP.Client.Models;
 using SR2MP.Shared.Managers;
+using SR2MP.Shared.Utils;
 using UnityEngine.UI;
 
 namespace SR2MP.Components.Map;
@@ -13,19 +14,22 @@ namespace SR2MP.Components.Map;
 public sealed class RemotePlayerMapMarkers : MonoBehaviour
 {
     private const string MarkerPrefix = "SR2MP_REMOTE_PLAYER_";
-    private const float MarkerUiRefreshInterval = 0.5f;
+    private const float MarkerPositionEpsilonSqr = 0.25f;
+    private const int FallbackSpriteSize = 32;
 
     private readonly Dictionary<string, MapNavigationMarkerData> markerSources = new();
     private readonly Dictionary<string, string> registeredMapMarkerIds = new();
     private readonly Dictionary<string, Vector3> latestMarkerPositions = new();
     private readonly Dictionary<string, MapDefinition> latestMarkerMaps = new();
     private readonly Dictionary<string, GameObject> radarTargets = new();
+    private readonly Dictionary<string, Vector3> latestCompassPositions = new();
     private readonly Dictionary<string, int> radarTargetSceneGroups = new();
     private readonly HashSet<string> registeredPlayerIds = new();
+    private readonly HashSet<string> activePlayerIds = new();
+    private readonly HashSet<string> hiddenRadarTargets = new();
 
     private MapDirector? currentMapDirector;
-    private float nextMarkerUiRefreshTime;
-    private int nextMarkerVersion;
+    private static Sprite? fallbackRemotePlayerSprite;
 
     private void OnDestroy()
     {
@@ -47,12 +51,14 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         {
             ClearRegisteredMarkers();
             currentMapDirector = mapDirector;
-            nextMarkerUiRefreshTime = 0f;
         }
 
-        var activePlayerIds = new HashSet<string>();
+        activePlayerIds.Clear();
 
-        foreach (var player in playerManager.GetAllPlayers())
+        var players = playerManager.GetAllPlayers();
+        PerformanceDiagnostics.RecordMapMarkerUpdate(players.Count);
+
+        foreach (var player in players)
         {
             if (player.PlayerId == LocalID)
                 continue;
@@ -63,7 +69,6 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         }
 
         RemoveStaleMarkers(mapDirector, activePlayerIds);
-        RefreshMapUiIfNeeded(mapDirector);
     }
 
     [HideFromIl2Cpp]
@@ -75,13 +80,21 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         if (!TryGetMapForSceneGroup(mapDirector, sceneGroup, out var mapDefinition))
             return;
 
-        var markerSource = GetOrCreateMarkerSource(player.PlayerId);
-        markerSource.SetPosition(player.Position, mapDefinition);
-        latestMarkerPositions[player.PlayerId] = player.Position;
-        latestMarkerMaps[player.PlayerId] = mapDefinition;
+        var playerId = player.PlayerId;
+        var markerSource = GetOrCreateMarkerSource(playerId);
+        var positionChanged = !latestMarkerPositions.TryGetValue(playerId, out var lastPosition)
+                              || (lastPosition - player.Position).sqrMagnitude >= MarkerPositionEpsilonSqr;
+        var mapChanged = !latestMarkerMaps.TryGetValue(playerId, out var lastMap) || lastMap != mapDefinition;
 
-        if (registeredPlayerIds.Add(player.PlayerId))
-            RegisterMarker(mapDirector, player.PlayerId, markerSource, forceNewId: true);
+        if (positionChanged || mapChanged)
+        {
+            markerSource.SetPosition(player.Position, mapDefinition);
+            latestMarkerPositions[playerId] = player.Position;
+            latestMarkerMaps[playerId] = mapDefinition;
+        }
+
+        if (registeredPlayerIds.Add(playerId))
+            RegisterMarker(mapDirector, playerId, markerSource);
     }
 
     private MapNavigationMarkerData GetOrCreateMarkerSource(string playerId)
@@ -108,27 +121,6 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
             markerSources.Remove(playerId);
             latestMarkerPositions.Remove(playerId);
             latestMarkerMaps.Remove(playerId);
-        }
-    }
-
-    private void RefreshMapUiIfNeeded(MapDirector mapDirector)
-    {
-        if (UnityEngine.Time.unscaledTime < nextMarkerUiRefreshTime)
-            return;
-
-        nextMarkerUiRefreshTime = UnityEngine.Time.unscaledTime + MarkerUiRefreshInterval;
-
-        foreach (var playerId in registeredPlayerIds.ToArray())
-        {
-            if (!latestMarkerPositions.TryGetValue(playerId, out var position)
-                || !latestMarkerMaps.TryGetValue(playerId, out var mapDefinition))
-                continue;
-
-            var markerSource = CreateMarkerSource(position, mapDefinition);
-            markerSources[playerId] = markerSource;
-
-            DeregisterMarker(mapDirector, playerId);
-            RegisterMarker(mapDirector, playerId, markerSource, forceNewId: true);
         }
     }
 
@@ -162,8 +154,12 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
             return;
 
         var target = GetOrCreateRadarTarget(player.PlayerId);
-        target.transform.position = player.Position;
-        HideRadarTargetVisuals(target);
+        if (!latestCompassPositions.TryGetValue(player.PlayerId, out var lastPosition)
+            || (lastPosition - player.Position).sqrMagnitude >= MarkerPositionEpsilonSqr)
+        {
+            target.transform.position = player.Position;
+            latestCompassPositions[player.PlayerId] = player.Position;
+        }
 
         if (radarTargetSceneGroups.TryGetValue(player.PlayerId, out var registeredSceneGroup)
             && registeredSceneGroup == player.SceneGroup)
@@ -173,11 +169,11 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
             RadarRegistry.UnregisterTrackedGameObjectAdvanced(target);
 
         var markerSource = GetOrCreateMarkerSource(player.PlayerId);
-        var sprite = markerSource.GetMapMarkerDescriptor()?.MapIcon;
+        var sprite = GetMarkerSprite(markerSource);
 
         RadarRegistry.RegisterTrackedGameObjectAdvanced(target, sceneGroup, sprite, false);
         radarTargetSceneGroups[player.PlayerId] = player.SceneGroup;
-        HideRadarTargetVisuals(target);
+        HideRadarTargetVisualsIfNeeded(player.PlayerId, target, force: true);
     }
 
     private GameObject GetOrCreateRadarTarget(string playerId)
@@ -189,6 +185,7 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         target.transform.localScale = Vector3.zero;
         Object.DontDestroyOnLoad(target);
         radarTargets[playerId] = target;
+        HideRadarTargetVisualsIfNeeded(playerId, target);
         return target;
     }
 
@@ -209,7 +206,9 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         }
 
         radarTargets.Remove(playerId);
+        latestCompassPositions.Remove(playerId);
         radarTargetSceneGroups.Remove(playerId);
+        hiddenRadarTargets.Remove(playerId);
     }
 
     private void ClearCompassMarkers()
@@ -242,13 +241,10 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         }
     }
 
-    private void RegisterMarker(MapDirector mapDirector, string playerId, MapNavigationMarkerData markerSource, bool forceNewId = false)
+    private void RegisterMarker(MapDirector mapDirector, string playerId, MapNavigationMarkerData markerSource)
     {
-        if (forceNewId || !registeredMapMarkerIds.TryGetValue(playerId, out var markerId))
-        {
-            markerId = MarkerId(playerId, ++nextMarkerVersion);
-            registeredMapMarkerIds[playerId] = markerId;
-        }
+        if (!registeredMapMarkerIds.TryGetValue(playerId, out var markerId))
+            registeredMapMarkerIds[playerId] = markerId = MarkerId(playerId);
 
         try
         {
@@ -260,11 +256,76 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
         }
     }
 
-    private static MapNavigationMarkerData CreateMarkerSource(Vector3 position, MapDefinition mapDefinition)
+    private static Sprite GetMarkerSprite(MapNavigationMarkerData markerSource)
     {
-        var markerSource = new MapNavigationMarkerData();
-        markerSource.SetPosition(position, mapDefinition);
-        return markerSource;
+        var descriptor = markerSource.GetMapMarkerDescriptor();
+        if (descriptor != null && descriptor.MapIcon)
+            return descriptor.MapIcon;
+
+        return GetOrCreateFallbackRemotePlayerSprite();
+    }
+
+    private static Sprite GetOrCreateFallbackRemotePlayerSprite()
+    {
+        if (fallbackRemotePlayerSprite)
+            return fallbackRemotePlayerSprite!;
+
+        var texture = new Texture2D(FallbackSpriteSize, FallbackSpriteSize, TextureFormat.RGBA32, false)
+        {
+            name = "SR2MP_RemotePlayerMarkerTexture",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave,
+        };
+
+        var center = (FallbackSpriteSize - 1) * 0.5f;
+        var outerRadius = FallbackSpriteSize * 0.42f;
+        var innerRadius = FallbackSpriteSize * 0.24f;
+        var outerRadiusSqr = outerRadius * outerRadius;
+        var innerRadiusSqr = innerRadius * innerRadius;
+        var outlineColor = new Color(1f, 1f, 1f, 0.95f);
+        var fillColor = new Color(0.15f, 0.75f, 1f, 0.95f);
+        var clear = new Color(1f, 1f, 1f, 0f);
+
+        for (var y = 0; y < FallbackSpriteSize; y++)
+        {
+            for (var x = 0; x < FallbackSpriteSize; x++)
+            {
+                var dx = x - center;
+                var dy = y - center;
+                var distanceSqr = dx * dx + dy * dy;
+
+                texture.SetPixel(
+                    x,
+                    y,
+                    distanceSqr <= innerRadiusSqr
+                        ? fillColor
+                        : distanceSqr <= outerRadiusSqr
+                            ? outlineColor
+                            : clear);
+            }
+        }
+
+        texture.Apply(false, true);
+
+        fallbackRemotePlayerSprite = Sprite.Create(
+            texture,
+            new Rect(0, 0, FallbackSpriteSize, FallbackSpriteSize),
+            new Vector2(0.5f, 0.5f),
+            FallbackSpriteSize);
+
+        fallbackRemotePlayerSprite.name = "SR2MP_RemotePlayerMarkerSprite";
+        fallbackRemotePlayerSprite.hideFlags = HideFlags.HideAndDontSave;
+        return fallbackRemotePlayerSprite;
+    }
+
+    private void HideRadarTargetVisualsIfNeeded(string playerId, GameObject target, bool force = false)
+    {
+        if (!force && hiddenRadarTargets.Contains(playerId))
+            return;
+
+        HideRadarTargetVisuals(target);
+        hiddenRadarTargets.Add(playerId);
     }
 
     private static void HideRadarTargetVisuals(GameObject target)
@@ -340,5 +401,5 @@ public sealed class RemotePlayerMapMarkers : MonoBehaviour
 
     private static string LegacyMarkerId(string playerId) => $"{MarkerPrefix}{playerId}";
 
-    private static string MarkerId(string playerId, int version) => $"{MarkerPrefix}{playerId}_{version}";
+    private static string MarkerId(string playerId) => $"{MarkerPrefix}{playerId}";
 }

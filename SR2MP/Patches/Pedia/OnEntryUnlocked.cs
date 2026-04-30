@@ -10,6 +10,8 @@ public static class OnEntryUnlocked
     public static void Postfix(PediaEntry entry, bool showPopup = true)
     {
         if (handlingPacket) return;
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
+        if (entry == null || string.IsNullOrWhiteSpace(entry.PersistenceId)) return;
 
         var packet = new PediaUnlockPacket
         {

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using SR2MP.Shared.Managers;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Server.Managers;
 
@@ -87,9 +88,10 @@ public sealed class NetworkManager
 
                 OnDataReceived?.Invoke(data, remoteEp);
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                // never happens, no timeout set
+                if (isRunning && ex.ErrorCode != 10004)
+                    SrLogger.LogWarning($"Server receive socket warning {ex.ErrorCode}: {ex.SocketErrorCode}", SrLogTarget.Both);
             }
             catch (Exception ex)
             {
@@ -120,6 +122,7 @@ public sealed class NetworkManager
             }
 
             var chunks = PacketChunkManager.SplitPacket(data, packetReliability, sequenceNumber, out ushort packetId);
+            PerformanceDiagnostics.RecordNetworkSend(data[0], chunks.Length);
 
             if (packetReliability != PacketReliability.Unreliable)
             {
@@ -153,6 +156,7 @@ public sealed class NetworkManager
         {
             PacketReliability finalReliability = reliability ?? PacketReliability.Unreliable;
             var endpointList = endpoints as IList<IPEndPoint> ?? endpoints.ToList();
+            PerformanceDiagnostics.RecordNetworkBroadcast(data[0], endpointList.Count);
             if (endpointList.Count == 0)
                 return;
 
@@ -162,6 +166,7 @@ public sealed class NetworkManager
                 {
                     ushort orderedSequence = reliabilityManager?.GetNextSequenceNumber(endpoint, data[0]) ?? 0;
                     var orderedChunks = PacketChunkManager.SplitPacket(data, finalReliability, orderedSequence, out ushort orderedPacketId);
+                    PerformanceDiagnostics.RecordNetworkSend(data[0], orderedChunks.Length);
 
                     reliabilityManager?.TrackPacket(orderedChunks, endpoint, orderedPacketId, data[0], finalReliability, orderedSequence);
 
@@ -178,6 +183,7 @@ public sealed class NetworkManager
 
             // Split once, send to many
             var chunks = PacketChunkManager.SplitPacket(data, finalReliability, sequenceNumber, out ushort packetId);
+            PerformanceDiagnostics.RecordNetworkSend(data[0], chunks.Length * endpointList.Count);
 
             foreach (var endpoint in endpointList)
             {
@@ -202,6 +208,7 @@ public sealed class NetworkManager
     // Sends raw data without reliability tracking (used for resends or internally)
     private void SendRaw(byte[] data, IPEndPoint endPoint)
     {
+        PerformanceDiagnostics.RecordUdpSend(data.Length);
         udpClient?.Send(data, data.Length, endPoint);
     }
 

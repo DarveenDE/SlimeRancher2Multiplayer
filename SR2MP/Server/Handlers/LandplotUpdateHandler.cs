@@ -2,6 +2,7 @@ using System.Net;
 using SR2MP.Packets.Landplot;
 using SR2MP.Server.Managers;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Server.Handlers;
 
@@ -13,30 +14,10 @@ public sealed class LandPlotUpdateHandler : BasePacketHandler<LandPlotUpdatePack
 
     protected override void Handle(LandPlotUpdatePacket packet, IPEndPoint clientEp)
     {
-        var model = SceneContext.Instance.GameModel.landPlots[packet.ID];
-
-        Main.Server.SendToAllExcept(packet, clientEp);
-
-        if (!packet.IsUpgrade)
-        {
-            model.typeId = packet.PlotType;
-
-            if (!model.gameObj) return;
-
-            var location = model.gameObj.GetComponent<LandPlotLocation>();
-            var landPlotComponent = model.gameObj.GetComponentInChildren<LandPlot>();
-
-            location.Replace(landPlotComponent,
-                GameContext.Instance.LookupDirector._plotPrefabDict[packet.PlotType]);
+        if (!WorldEventStateSyncManager.ApplyLandPlotUpdate(packet, "server land plot update"))
             return;
-        }
 
-        model.upgrades.Add(packet.PlotUpgrade);
-
-        if (!model.gameObj) return;
-        {
-            var landPlotComponent = model.gameObj.GetComponentInChildren<LandPlot>();
-            landPlotComponent.AddUpgrade(packet.PlotUpgrade);
-        }
+        packet.IsRepairSnapshot = false;
+        Main.Server.SendToAllExcept(packet, clientEp);
     }
 }

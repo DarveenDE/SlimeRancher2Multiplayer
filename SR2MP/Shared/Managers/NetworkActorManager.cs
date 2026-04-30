@@ -6,6 +6,7 @@ using MelonLoader;
 using SR2E.Utils;
 using SR2MP.Components.Actor;
 using SR2MP.Packets.Actor;
+using SR2MP.Shared.Utils;
 using UnityEngine.SceneManagement;
 
 namespace SR2MP.Shared.Managers;
@@ -40,6 +41,9 @@ public sealed class NetworkActorManager
 
             if (!Main.Server.IsRunning() && !Main.Client.IsConnected)
                 continue;
+
+            while (NetworkSessionState.InitialActorLoadInProgress)
+                yield return null;
 
             if (!SystemContext.Instance.SceneLoader.IsCurrentSceneGroupGameplay())
                 continue;
@@ -80,9 +84,8 @@ public sealed class NetworkActorManager
 
                 if (actor2.value.sceneGroup != scene)
                     continue;
-                handlingPacket = true;
-                var obj = InstantiationHelpers.InstantiateActorFromModel(model);
-                handlingPacket = false;
+                GameObject obj = null!;
+                RunWithHandlingPacket(() => obj = InstantiationHelpers.InstantiateActorFromModel(model));
 
                 if (!obj)
                     continue;
@@ -94,7 +97,7 @@ public sealed class NetworkActorManager
                 networkComponent.previousRotation = model.lastRotation;
                 networkComponent.nextRotation = model.lastRotation;
 
-                actorManager.Actors.Add(model.actorId.Value, model);
+                actorManager.Actors[model.actorId.Value] = model;
             }
 
             yield return TakeOwnershipOfNearby();
@@ -118,67 +121,86 @@ public sealed class NetworkActorManager
     {
         actorModel = null;
 
-        if (Main.RockPlortBug)
-            typeId = 25;
-
-        var scene = NetworkSceneManager.GetSceneGroup(sceneId);
-
-        if (!ActorTypes.TryGetValue(typeId, out var type))
+        try
         {
-            SrLogger.LogWarning($"Tried to spawn actor with an invalid type!\n\tActor {actorId.Value}: type_{typeId}");
-            return false;
-        }
+            if (Main.RockPlortBug)
+                typeId = 25;
 
-        if (!type.prefab)
-            return false;
+            if (!NetworkSceneManager.TryGetSceneGroup(sceneId, out var scene) || scene == null)
+            {
+                SrLogger.LogWarning(
+                    $"Tried to spawn actor {actorId.Value} with an invalid scene id {sceneId}.",
+                    SrLogTarget.Both);
+                return false;
+            }
 
-        if (type.isGadget())
-        {
-            return TrySpawnNetworkGadget(actorId, position, rotation, type, scene, isPrePlaced, out actorModel);
-        }
+            if (!ActorTypes.TryGetValue(typeId, out var type) || !type)
+            {
+                SrLogger.LogWarning($"Tried to spawn actor with an invalid type!\n\tActor {actorId.Value}: type_{typeId}");
+                return false;
+            }
 
-        if (ActorIDAlreadyInUse(actorId))
-            return false;
+            if (!type.prefab)
+                return false;
 
-        var spawnedActorModel = SceneContext.Instance.GameModel.CreateActorModel(
+            if (type.isGadget())
+            {
+                return TrySpawnNetworkGadget(actorId, position, rotation, type, scene, isPrePlaced, out actorModel);
+            }
+
+            if (ActorIDAlreadyInUse(actorId))
+                return false;
+
+            var spawnedActorModel = SceneContext.Instance.GameModel.CreateActorModel(
                 actorId,
                 type,
                 scene,
                 position,
                 rotation);
 
-        if (spawnedActorModel == null)
-            return false;
+            if (spawnedActorModel == null)
+                return false;
 
-        actorModel = spawnedActorModel;
+            actorModel = spawnedActorModel;
 
-        SceneContext.Instance.GameModel.identifiables[actorId] = spawnedActorModel;
-        if (SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(type, out var actors))
-        {
-            actors.Add(spawnedActorModel);
-        }
-        else
-        {
-            actors = new CppCollections.List<IdentifiableModel>();
-            actors.Add(spawnedActorModel);
-            SceneContext.Instance.GameModel.identifiablesByIdent.Add(type, actors);
-        }
+            SceneContext.Instance.GameModel.identifiables[actorId] = spawnedActorModel;
+            if (SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(type, out var actors))
+            {
+                actors.Add(spawnedActorModel);
+            }
+            else
+            {
+                actors = new CppCollections.List<IdentifiableModel>();
+                actors.Add(spawnedActorModel);
+                SceneContext.Instance.GameModel.identifiablesByIdent.Add(type, actors);
+            }
 
-        handlingPacket = true;
-        var actor = InstantiationHelpers.InstantiateActorFromModel(spawnedActorModel);
-        handlingPacket = false;
+            GameObject actor = null!;
+            RunWithHandlingPacket(() => actor = InstantiationHelpers.InstantiateActorFromModel(spawnedActorModel));
 
-        if (!actor)
+            if (!actor)
+            {
+                actorManager.Actors[actorId.Value] = spawnedActorModel;
+                return true;
+            }
+
+            var networkComponent = actor.AddComponent<NetworkActor>();
+            networkComponent.previousPosition = position;
+            networkComponent.nextPosition = position;
+            networkComponent.previousRotation = rotation;
+            networkComponent.nextRotation = rotation;
+            actor.transform.position = position;
+            actorManager.Actors[actorId.Value] = spawnedActorModel;
+
             return true;
-        var networkComponent = actor.AddComponent<NetworkActor>();
-        networkComponent.previousPosition = position;
-        networkComponent.nextPosition = position;
-        networkComponent.previousRotation = rotation;
-        networkComponent.nextRotation = rotation;
-        actor.transform.position = position;
-        actorManager.Actors[actorId.Value] = spawnedActorModel;
-
-        return true;
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogWarning(
+                $"Failed to spawn network actor {actorId.Value} (type={typeId}, scene={sceneId}): {ex.Message}",
+                SrLogTarget.Both);
+            return false;
+        }
     }
 
     public bool TrySpawnNetworkActor(
@@ -235,9 +257,8 @@ public sealed class NetworkActorManager
             SceneContext.Instance.GameModel.identifiablesByIdent.Add(type, actors);
         }
 
-        handlingPacket = true;
-        var gadget = GadgetDirector.InstantiateGadgetFromModel(model);
-        handlingPacket = false;
+        GameObject gadget = null!;
+        RunWithHandlingPacket(() => gadget = GadgetDirector.InstantiateGadgetFromModel(model));
 
         if (gadget)
         {
@@ -246,6 +267,7 @@ public sealed class NetworkActorManager
         }
 
         gadgetModel = model;
+        actorManager.Actors[actorId.Value] = model;
         return true;
     }
 
@@ -305,7 +327,7 @@ public sealed class NetworkActorManager
             if (!bounds.Contains(actor.Value.lastPosition))
                 continue;
 
-            if (actor.Value.TryGetNetworkComponent(out var netActor))
+            if (!actor.Value.TryGetNetworkComponent(out var netActor) || netActor == null)
                 continue;
 
             netActor.LocallyOwned = true;
@@ -313,7 +335,7 @@ public sealed class NetworkActorManager
             var actorId = netActor.ActorId;
             if (actorId.Value == 0)
             {
-                yield break;
+                continue;
             }
 
             var packet = new ActorTransferPacket

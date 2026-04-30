@@ -17,6 +17,7 @@ public sealed class Server
     private readonly PacketManager packetManager;
 
     private Timer? timeoutTimer;
+    private int closeInProgress;
 
     // Just here so that the port is viewable.
     public int Port { get; private set; }
@@ -57,8 +58,7 @@ public sealed class Server
 
         try
         {
-            PacketDeduplication.Clear();
-            PacketChunkManager.Clear();
+            NetworkSessionState.ClearTransientSyncState();
             MainThreadDispatcher.Clear();
 
             packetManager.RegisterHandlers();
@@ -129,26 +129,29 @@ public sealed class Server
 
     public void Close()
     {
-        if (!networkManager.IsRunning)
+        if (System.Threading.Interlocked.Exchange(ref closeInProgress, 1) == 1)
             return;
-
-        var closeChatMessage = new ChatMessagePacket
-        {
-            Username = "SYSTEM",
-            Message = "Server closed!",
-            MessageID = $"SYSTEM_CLOSE_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
-            MessageType = MultiplayerUI.SystemMessageClose
-        };
-        SendToAll(closeChatMessage);
-
-        if (MultiplayerUI.Instance)
-        {
-            MultiplayerUI.Instance.ClearChatMessages();
-            MultiplayerUI.Instance.RegisterSystemMessage("You closed the server!", $"SYSTEM_CLOSE_HOST_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
-        }
 
         try
         {
+            if (!networkManager.IsRunning)
+                return;
+
+            var closeChatMessage = new ChatMessagePacket
+            {
+                Username = "SYSTEM",
+                Message = "Server closed!",
+                MessageID = $"SYSTEM_CLOSE_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                MessageType = MultiplayerUI.SystemMessageClose
+            };
+            SendToAll(closeChatMessage);
+
+            if (MultiplayerUI.Instance)
+            {
+                MultiplayerUI.Instance.ClearChatMessages();
+                MultiplayerUI.Instance.RegisterSystemMessage("You closed the server!", $"SYSTEM_CLOSE_HOST_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
+            }
+
             timeoutTimer?.Dispose();
             timeoutTimer = null;
 
@@ -177,8 +180,7 @@ public sealed class Server
                 }
             }
 
-            PacketDeduplication.Clear();
-            PacketChunkManager.Clear();
+            NetworkSessionState.ClearTransientSyncState();
             clientManager.Clear();
             playerManager.Clear();
             networkManager.Stop();
@@ -191,13 +193,20 @@ public sealed class Server
         {
             SrLogger.LogError($"Error during server shutdown: {ex}", SrLogTarget.Both);
         }
+        finally
+        {
+            System.Threading.Volatile.Write(ref closeInProgress, 0);
+        }
     }
 
     public ushort? SendToClient<T>(T packet, IPEndPoint endPoint) where T : IPacket
     {
+        var perfStart = PerformanceDiagnostics.IsEnabled ? PerformanceDiagnostics.GetTimestamp() : 0;
         using var writer = new PacketWriter();
         writer.WritePacket(packet);
-        return networkManager.Send(writer.ToArray(), endPoint, packet.Reliability);
+        var data = writer.ToArray();
+        PerformanceDiagnostics.RecordServerSendToClient((byte)packet.Type, data.Length, PerformanceDiagnostics.GetElapsedTicks(perfStart));
+        return networkManager.Send(data, endPoint, packet.Reliability);
     }
 
     public ushort? SendToClient<T>(T packet, ClientInfo client) where T : IPacket
@@ -207,9 +216,12 @@ public sealed class Server
 
     public void SendToAll<T>(T packet) where T : IPacket
     {
+        var clientCount = clientManager.ClientCount;
+        var perfStart = PerformanceDiagnostics.IsEnabled ? PerformanceDiagnostics.GetTimestamp() : 0;
         using var writer = new PacketWriter();
         writer.WritePacket(packet);
         byte[] data = writer.ToArray();
+        PerformanceDiagnostics.RecordServerSendToAll((byte)packet.Type, packet.Reliability, clientCount, data.Length, PerformanceDiagnostics.GetElapsedTicks(perfStart));
 
         var readyEndpoints = new List<IPEndPoint>();
         foreach (var client in clientManager.GetAllClients())
@@ -225,9 +237,11 @@ public sealed class Server
 
     public void SendToAllExcept<T>(T packet, string excludedClientInfo) where T : IPacket
     {
+        var perfStart = PerformanceDiagnostics.IsEnabled ? PerformanceDiagnostics.GetTimestamp() : 0;
         using var writer = new PacketWriter();
         writer.WritePacket(packet);
         byte[] data = writer.ToArray();
+        PerformanceDiagnostics.RecordServerSendToAllExcept((byte)packet.Type, data.Length, PerformanceDiagnostics.GetElapsedTicks(perfStart));
 
         foreach (var client in clientManager.GetAllClients())
         {

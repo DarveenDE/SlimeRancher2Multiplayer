@@ -17,13 +17,15 @@ public sealed class PlayerFXHandler : BasePacketHandler<PlayerFXPacket>
         if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
             return;
 
-        if (!IsPlayerSoundDictionary[packet.FX])
-        {
-            var fxPrefab = fxManager.PlayerFXMap[packet.FX];
+        if (!IsPlayerSoundDictionary.TryGetValue(packet.FX, out var isSound))
+            return;
 
-            handlingPacket = true;
-            FXHelpers.SpawnAndPlayFX(fxPrefab, packet.Position, Quaternion.identity);
-            handlingPacket = false;
+        if (!isSound)
+        {
+            if (!fxManager.PlayerFXMap.TryGetValue(packet.FX, out var fxPrefab) || !fxPrefab)
+                return;
+
+            RunWithHandlingPacket(() => FXHelpers.SpawnAndPlayFX(fxPrefab, packet.Position, Quaternion.identity));
         }
         else
         {
@@ -32,20 +34,37 @@ public sealed class PlayerFXHandler : BasePacketHandler<PlayerFXPacket>
             if (!playerObjects.TryGetValue(packet.Player, out var playerObject) || !playerObject)
                 return;
 
-            var cue = fxManager.PlayerAudioCueMap[packet.FX];
-            if (ShouldPlayerSoundBeTransientDictionary[packet.FX])
+            if (!fxManager.PlayerAudioCueMap.TryGetValue(packet.FX, out var cue) || !cue)
+                return;
+
+            var volume = PlayerSoundVolumeDictionary.TryGetValue(packet.FX, out var configuredVolume)
+                ? configuredVolume
+                : 1f;
+
+            var isTransient = ShouldPlayerSoundBeTransientDictionary.TryGetValue(packet.FX, out var transient)
+                && transient;
+
+            if (isTransient)
             {
-                RemoteFXManager.PlayTransientAudio(cue, playerObject.transform.position, PlayerSoundVolumeDictionary[packet.FX]);
+                RemoteFXManager.PlayTransientAudio(cue, playerObject.transform.position, volume);
             }
             else
             {
                 var playerAudio = playerObject.GetComponent<SECTR_PointSource>();
+                if (!playerAudio)
+                    return;
 
-                playerAudio.Cue = cue;
-                playerAudio.Loop = DoesPlayerSoundLoopDictionary[packet.FX];
+                var shouldLoop = DoesPlayerSoundLoopDictionary.TryGetValue(packet.FX, out var loop)
+                    && loop;
 
-                playerAudio.instance.Volume = PlayerSoundVolumeDictionary[packet.FX];
-                playerAudio.Play();
+                RunWithHandlingPacket(() =>
+                {
+                    playerAudio.Cue = cue;
+                    playerAudio.Loop = shouldLoop;
+
+                    playerAudio.instance.Volume = volume;
+                    playerAudio.Play();
+                });
             }
         }
 

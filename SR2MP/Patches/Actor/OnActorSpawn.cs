@@ -25,6 +25,14 @@ public static class OnActorSpawn
 
         var id = identifiableActor.GetActorId();
 
+        if (!Main.Server.IsRunning() && GardenResourceAttachSyncManager.IsAttachedGardenResource(actor))
+        {
+            GardenResourceAttachSyncManager.DestroyLocalResource(
+                actor.GetComponent<ResourceCycle>(),
+                "SR2MP.OnActorSpawn.ClientGardenSpawnSuppressed");
+            yield break;
+        }
+
         var packet = new ActorSpawnPacket
         {
             ActorType = actorType,

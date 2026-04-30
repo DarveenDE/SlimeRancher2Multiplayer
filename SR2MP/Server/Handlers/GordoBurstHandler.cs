@@ -1,8 +1,8 @@
 using System.Net;
-using Il2CppMonomiPark.SlimeRancher.DataModel;
 using SR2MP.Packets.Gordo;
 using SR2MP.Server.Managers;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Server.Handlers;
 
@@ -14,29 +14,10 @@ public sealed class GordoBurstHandler : BasePacketHandler<GordoBurstPacket>
 
     protected override void Handle(GordoBurstPacket packet, IPEndPoint clientEp)
     {
-        if (SceneContext.Instance.GameModel.gordos.TryGetValue(packet.ID, out var gordo))
-        {
-            gordo.GordoEatenCount = gordo.targetCount + 1;
+        if (!WorldEventStateSyncManager.ApplyGordoBurst(packet, "server gordo burst"))
+            return;
 
-            handlingPacket = true;
-            if (gordo.gameObj)
-                gordo.gameObj.GetComponent<GordoEat>().ImmediateReachedTarget();
-            handlingPacket = false;
-        }
-        else
-        {
-            gordo = new GordoModel
-            {
-                fashions = new CppCollections.List<IdentifiableType>(0),
-                gordoEatCount = 999999,
-                gordoSeen = false,
-                gameObj = null,
-                targetCount = 50,
-            };
-
-            SceneContext.Instance.GameModel.gordos.Add(packet.ID, gordo);
-        }
-
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, clientEp);
     }
 }

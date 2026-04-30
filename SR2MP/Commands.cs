@@ -78,3 +78,51 @@ public sealed class ConnectCommand : SR2ECommand
         return Main.Client.Connect(resolvedAddress.Host, resolvedAddress.Port);
     }
 }
+
+public sealed class PerformanceDiagnosticsCommand : SR2ECommand
+{
+    public override string ID => "perfdiag";
+    public override string Usage => "perfdiag <on|off|snapshot|reset|path>";
+
+    public override bool Execute(string[] args)
+    {
+        if (args.Length < 1)
+        {
+            SrLogger.LogMessage($"Performance diagnostics log: {PerformanceDiagnostics.LogPath}", SrLogTarget.Both);
+            return false;
+        }
+
+        switch (args[0].Trim().ToLowerInvariant())
+        {
+            case "on":
+            case "enable":
+                Main.SetConfigValue("performance_diagnostics", true);
+                PerformanceDiagnostics.SetEnabled(true);
+                return true;
+
+            case "off":
+            case "disable":
+                Main.SetConfigValue("performance_diagnostics", false);
+                PerformanceDiagnostics.SetEnabled(false);
+                return true;
+
+            case "snapshot":
+            case "snap":
+                PerformanceDiagnostics.WriteSnapshot("command");
+                SrLogger.LogMessage($"Performance diagnostics snapshot written to: {PerformanceDiagnostics.LogPath}", SrLogTarget.Both);
+                return true;
+
+            case "reset":
+                PerformanceDiagnostics.Reset();
+                SrLogger.LogMessage("Performance diagnostics baseline reset.", SrLogTarget.Both);
+                return true;
+
+            case "path":
+                SrLogger.LogMessage($"Performance diagnostics log: {PerformanceDiagnostics.LogPath}", SrLogTarget.Both);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+}

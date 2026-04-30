@@ -20,14 +20,15 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
         }
 
         SceneContext.Instance.GameModel.identifiables.Remove(packet.ActorId);
-        SceneContext.Instance.GameModel.identifiablesByIdent[actor.ident].Remove(actor);
+        if (SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(actor.ident, out var actorsByIdent))
+            actorsByIdent.Remove(actor);
+
         SceneContext.Instance.GameModel.DestroyIdentifiableModel(actor);
+        actorManager.Actors.Remove(packet.ActorId.Value);
 
         var obj = actor.GetGameObject();
-        handlingPacket = true;
         if (obj)
-            Destroyer.DestroyActor(actor.GetGameObject(), "SR2MP.ActorDestroyHandler");
-        handlingPacket = false;
+            RunWithHandlingPacket(() => Destroyer.DestroyActor(obj, "SR2MP.ActorDestroyHandler"));
 
         Main.Server.SendToAllExcept(packet, clientEp);
     }

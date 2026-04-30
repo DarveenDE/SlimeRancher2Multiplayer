@@ -13,13 +13,13 @@ public sealed class GeyserTriggerHandler : BaseClientPacketHandler<GeyserTrigger
     protected override void Handle(GeyserTriggerPacket packet)
     {
         var geyserObject = GameObject.Find(packet.ObjectPath);
+        if (!geyserObject)
+            return;
 
-        handlingPacket = true;
-        if (geyserObject)
-        {
-            var geyser = geyserObject.GetComponent<Geyser>();
-            geyser.StartCoroutine(geyser.RunGeyser(packet.Duration));
-        }
-        handlingPacket = false;
+        var geyser = geyserObject.GetComponent<Geyser>();
+        if (!geyser)
+            return;
+
+        RunWithHandlingPacket(() => geyser.StartCoroutine(geyser.RunGeyser(packet.Duration)));
     }
 }

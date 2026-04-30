@@ -13,4 +13,5 @@ global using Il2Cpp;
 global using Il2CppMonomiPark.SlimeRancher;
 
 global using static SR2MP.Shared.Utils.FXConstants;
+global using static SR2MP.Shared.Utils.PacketEchoGuard;
 global using static SR2MP.GlobalVariables;

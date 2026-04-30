@@ -10,6 +10,7 @@ public sealed class GordoFeedPacket : IPacket
     // Needed for unregistered gordos.
     public int RequiredFoodCount { get; set; }
     public int GordoType { get; set; }
+    public bool IsRepairSnapshot { get; set; }
 
     public PacketType Type => PacketType.GordoFeed;
     public PacketReliability Reliability => PacketReliability.Reliable;
@@ -20,6 +21,7 @@ public sealed class GordoFeedPacket : IPacket
         writer.WriteInt(NewFoodCount);
         writer.WriteInt(RequiredFoodCount);
         writer.WriteInt(GordoType);
+        writer.WriteBool(IsRepairSnapshot);
     }
 
     public void Deserialise(PacketReader reader)
@@ -28,5 +30,6 @@ public sealed class GordoFeedPacket : IPacket
         NewFoodCount = reader.ReadInt();
         RequiredFoodCount = reader.ReadInt();
         GordoType = reader.ReadInt();
+        IsRepairSnapshot = reader.ReadBool();
     }
 }

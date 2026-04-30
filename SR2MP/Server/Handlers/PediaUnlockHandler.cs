@@ -13,12 +13,14 @@ public sealed class PediaUnlockHandler : BasePacketHandler<PediaUnlockPacket>
 
     protected override void Handle(PediaUnlockPacket packet, IPEndPoint senderEndPoint)
     {
-        handlingPacket = true;
-        SceneContext.Instance.PediaDirector.Unlock(
-            GameContext.Instance.AutoSaveDirector
-                ._saveReferenceTranslation._pediaEntryLookup[packet.ID],
-            packet.Popup);
-        handlingPacket = false;
+        var lookup = GameContext.Instance.AutoSaveDirector._saveReferenceTranslation._pediaEntryLookup;
+        if (!lookup.TryGetValue(packet.ID, out var entry) || !entry)
+        {
+            SrLogger.LogWarning($"Ignoring pedia unlock with unknown id {packet.ID}.", SrLogTarget.Both);
+            return;
+        }
+
+        RunWithHandlingPacket(() => SceneContext.Instance.PediaDirector.Unlock(entry, packet.Popup));
 
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }

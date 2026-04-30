@@ -32,6 +32,7 @@ public sealed class ReliabilityManager
     private readonly ConcurrentDictionary<string, int> sequenceNumbersByDestinationAndType = new();
 
     private readonly Action<byte[], IPEndPoint> sendRawCallback;
+    private readonly List<string> _toRemove = new();
 
     private Thread? resendThread;
     private volatile bool isRunning;
@@ -115,13 +116,19 @@ public sealed class ReliabilityManager
 
         if (!lastProcessedSequence.TryGetValue(key, out var lastSequence))
         {
-            // First packet from this sender for this type
+            if (sequenceNumber != 1)
+            {
+                SrLogger.LogWarning(
+                    $"Rejected ordered packet with invalid initial sequence: seq={sequenceNumber}, type={packetType}",
+                    SrLogTarget.Both);
+                return OrderedPacketStatus.OutOfOrder;
+            }
+
             lastProcessedSequence[key] = sequenceNumber;
             return OrderedPacketStatus.Accepted;
         }
 
-        // Checks if this is the next expected sequence number
-        ushort expectedSequence = (ushort)(lastSequence + 1);
+        ushort expectedSequence = GetNextExpectedSequence(lastSequence);
 
         if (sequenceNumber == expectedSequence)
         {
@@ -132,9 +139,10 @@ public sealed class ReliabilityManager
         if (IsSequenceNewer(sequenceNumber, lastSequence))
         {
             SrLogger.LogWarning(
-                $"Out-of-order packet deferred without ACK: expected seq={expectedSequence}, got seq={sequenceNumber}, type={packetType}",
+                $"Ordered packet gap detected; accepting newer packet to keep stream alive: expected seq={expectedSequence}, got seq={sequenceNumber}, type={packetType}",
                 SrLogTarget.Both);
-            return OrderedPacketStatus.OutOfOrder;
+            lastProcessedSequence[key] = sequenceNumber;
+            return OrderedPacketStatus.Accepted;
         }
 
         return OrderedPacketStatus.Duplicate;
@@ -177,7 +185,7 @@ public sealed class ReliabilityManager
             try
             {
                 var now = DateTime.UtcNow;
-                var toRemove = new List<string>();
+                _toRemove.Clear();
 
                 foreach (var kvp in pendingPackets)
                 {
@@ -189,7 +197,7 @@ public sealed class ReliabilityManager
                         SrLogger.LogWarning(
                             $"Packet {packet.PacketId} (type={packet.PacketType}) failed after {packet.SendCount} attempts",
                             SrLogTarget.Both);
-                        toRemove.Add(kvp.Key);
+                        _toRemove.Add(kvp.Key);
                         continue;
                     }
 
@@ -214,7 +222,7 @@ public sealed class ReliabilityManager
                 }
 
                 // Removes timed out packets
-                foreach (var key in toRemove)
+                foreach (var key in _toRemove)
                 {
                     pendingPackets.TryRemove(key, out _);
                 }
@@ -244,6 +252,9 @@ public sealed class ReliabilityManager
         return ((s1 > s2) && (s1 - s2 <= 32768)) ||
                ((s1 < s2) && (s2 - s1 > 32768));
     }
+
+    private static ushort GetNextExpectedSequence(ushort current)
+        => current == ushort.MaxValue ? (ushort)1 : (ushort)(current + 1);
 
     public int GetPendingPacketCount() => pendingPackets.Count;
 

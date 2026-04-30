@@ -8,6 +8,7 @@ public sealed class LandPlotUpdatePacket : IPacket
     public string ID { get; set; }
     public LandPlot.Id PlotType { get; set; }
     public LandPlot.Upgrade PlotUpgrade { get; set; }
+    public bool IsRepairSnapshot { get; set; }
 
     public PacketType Type => PacketType.LandPlotUpdate;
     public PacketReliability Reliability => PacketReliability.Reliable;
@@ -21,6 +22,7 @@ public sealed class LandPlotUpdatePacket : IPacket
             writer.WriteEnum(PlotType);
         else
             writer.WriteEnum(PlotUpgrade);
+        writer.WriteBool(IsRepairSnapshot);
     }
 
     public void Deserialise(PacketReader reader)
@@ -32,5 +34,6 @@ public sealed class LandPlotUpdatePacket : IPacket
             PlotType = reader.ReadEnum<LandPlot.Id>();
         else
             PlotUpgrade = reader.ReadEnum<LandPlot.Upgrade>();
+        IsRepairSnapshot = reader.ReadBool();
     }
 }

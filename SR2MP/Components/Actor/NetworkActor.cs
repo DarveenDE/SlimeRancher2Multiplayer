@@ -22,9 +22,26 @@ public sealed class NetworkActor : MonoBehaviour
     private Identifiable identifiable;
     private Rigidbody rigidbody;
     private SlimeEmotions emotions;
+    private readonly List<AuthoritySensitiveBehaviourState> authoritySensitiveBehaviours = new();
+    private bool authoritySensitiveBehavioursCached;
 
     private float syncTimer = Timers.ActorTimer;
     public Vector3 SavedVelocity { get; internal set; }
+
+    private const float PositionUpdateThresholdSqr = 0.0025f;
+    private const float VelocityUpdateThresholdSqr = 0.01f;
+    // cos(0.5°) — avoids Quaternion.Angle (which calls acos) on every tick
+    private const float RotationDotThreshold = 0.99996192f;
+    private const float EmotionUpdateThreshold = 0.01f;
+
+    private bool hasSentUpdate;
+    private Vector3 lastSentPosition;
+    private Quaternion lastSentRotation;
+    private Vector3 lastSentVelocity;
+    private float4 lastSentEmotions;
+
+    private ActorId _cachedActorId;
+    private bool _actorIdCached;
 
     private byte attemptedGetIdentifiable = 0;
     private bool isValid = true;
@@ -39,6 +56,9 @@ public sealed class NetworkActor : MonoBehaviour
                 isValid = false;
                 return new ActorId(0);
             }
+
+            if (_actorIdCached)
+                return _cachedActorId;
 
             if (!identifiable)
             {
@@ -69,7 +89,13 @@ public sealed class NetworkActor : MonoBehaviour
 
             try
             {
-                return identifiable.GetActorId();
+                var id = identifiable.GetActorId();
+                if (id.Value != 0)
+                {
+                    _cachedActorId = id;
+                    _actorIdCached = true;
+                }
+                return id;
             }
             catch (Exception ex)
             {
@@ -115,7 +141,20 @@ public sealed class NetworkActor : MonoBehaviour
             emotions = GetComponent<SlimeEmotions>();
             cachedLocallyOwned = LocallyOwned;
             rigidbody = GetComponent<Rigidbody>();
+            CacheAuthoritySensitiveBehaviours();
+            SetRigidbodyState(LocallyOwned);
+            SetAuthoritySensitiveBehaviourState(LocallyOwned);
             identifiable = GetComponent<Identifiable>();
+
+            if (identifiable)
+            {
+                try
+                {
+                    var id = identifiable.GetActorId();
+                    if (id.Value != 0) { _cachedActorId = id; _actorIdCached = true; }
+                }
+                catch { /* will be resolved lazily via the ActorId property */ }
+            }
 
             regionMember = GetComponent<RegionMember>();
 
@@ -223,6 +262,8 @@ public sealed class NetworkActor : MonoBehaviour
 
     private void Update()
     {
+        PerformanceDiagnostics.RecordNetworkActorUpdate(LocallyOwned);
+
         if (isDestroyed)
             return;
 
@@ -238,6 +279,7 @@ public sealed class NetworkActor : MonoBehaviour
             if (cachedLocallyOwned != LocallyOwned)
             {
                 SetRigidbodyState(LocallyOwned);
+                SetAuthoritySensitiveBehaviourState(LocallyOwned);
 
                 if (LocallyOwned && rigidbody)
                     rigidbody.velocity = SavedVelocity;
@@ -252,6 +294,7 @@ public sealed class NetworkActor : MonoBehaviour
 
             if (LocallyOwned)
             {
+                PerformanceDiagnostics.RecordNetworkActorLocalTick();
                 syncTimer = Timers.ActorTimer;
 
                 previousPosition = transform.position;
@@ -262,22 +305,38 @@ public sealed class NetworkActor : MonoBehaviour
                 var actorId = ActorId;
                 if (actorId.Value == 0)
                 {
+                    PerformanceDiagnostics.RecordNetworkActorInvalidTick();
                     return;
                 }
+
+                var currentPosition = transform.position;
+                var currentRotation = transform.rotation;
+                var currentVelocity = rigidbody ? rigidbody.velocity : Vector3.zero;
+                var currentEmotions = EmotionsFloat;
+
+                if (!ShouldSendUpdate(currentPosition, currentRotation, currentVelocity, currentEmotions))
+                {
+                    PerformanceDiagnostics.RecordNetworkActorUnchangedTick();
+                    return;
+                }
+
+                RememberSentUpdate(currentPosition, currentRotation, currentVelocity, currentEmotions);
+                PerformanceDiagnostics.RecordNetworkActorPacketCreated();
 
                 var packet = new ActorUpdatePacket
                 {
                     ActorId = actorId,
-                    Position = transform.position,
-                    Rotation = transform.rotation,
-                    Velocity = rigidbody ? rigidbody.velocity : Vector3.zero,
-                    Emotions = EmotionsFloat
+                    Position = currentPosition,
+                    Rotation = currentRotation,
+                    Velocity = currentVelocity,
+                    Emotions = currentEmotions
                 };
 
                 Main.SendToAllOrServer(packet);
             }
             else
             {
+                PerformanceDiagnostics.RecordNetworkActorRemoteRetarget();
                 previousPosition = transform.position;
                 previousRotation = transform.rotation;
 
@@ -290,6 +349,35 @@ public sealed class NetworkActor : MonoBehaviour
             SrLogger.LogError($"NetworkActor.Update error: {ex}", SrLogTarget.Both);
             isValid = false;
         }
+    }
+
+    private bool ShouldSendUpdate(Vector3 position, Quaternion rotation, Vector3 velocity, float4 emotions)
+    {
+        if (!hasSentUpdate)
+            return true;
+
+        if ((position - lastSentPosition).sqrMagnitude >= PositionUpdateThresholdSqr)
+            return true;
+
+        if ((velocity - lastSentVelocity).sqrMagnitude >= VelocityUpdateThresholdSqr)
+            return true;
+
+        if (Mathf.Abs(Quaternion.Dot(rotation, lastSentRotation)) < RotationDotThreshold)
+            return true;
+
+        return Math.Abs(emotions.x - lastSentEmotions.x) >= EmotionUpdateThreshold
+            || Math.Abs(emotions.y - lastSentEmotions.y) >= EmotionUpdateThreshold
+            || Math.Abs(emotions.z - lastSentEmotions.z) >= EmotionUpdateThreshold
+            || Math.Abs(emotions.w - lastSentEmotions.w) >= EmotionUpdateThreshold;
+    }
+
+    private void RememberSentUpdate(Vector3 position, Quaternion rotation, Vector3 velocity, float4 emotions)
+    {
+        hasSentUpdate = true;
+        lastSentPosition = position;
+        lastSentRotation = rotation;
+        lastSentVelocity = velocity;
+        lastSentEmotions = emotions;
     }
 
     private void SetRigidbodyState(bool enableConstraints)
@@ -310,9 +398,81 @@ public sealed class NetworkActor : MonoBehaviour
         }
     }
 
+    private void CacheAuthoritySensitiveBehaviours()
+    {
+        if (authoritySensitiveBehavioursCached)
+            return;
+
+        authoritySensitiveBehavioursCached = true;
+        AddAuthoritySensitiveBehaviour(GetComponent<SlimeEat>());
+        AddAuthoritySensitiveBehaviour(GetComponent<SlimeEatTrigger>());
+        AddAuthoritySensitiveBehaviour(GetComponent<Reproduce>());
+    }
+
+    private void AddAuthoritySensitiveBehaviour(Behaviour behaviour)
+    {
+        if (!behaviour)
+            return;
+
+        authoritySensitiveBehaviours.Add(new AuthoritySensitiveBehaviourState(behaviour));
+    }
+
+    private void SetAuthoritySensitiveBehaviourState(bool locallyOwned)
+    {
+        if (isDestroyed)
+            return;
+
+        CacheAuthoritySensitiveBehaviours();
+
+        foreach (var state in authoritySensitiveBehaviours)
+        {
+            if (!state.Component)
+                continue;
+
+            try
+            {
+                if (locallyOwned)
+                {
+                    if (state.IsSuppressed)
+                    {
+                        state.Component.enabled = state.RestoreEnabled;
+                        state.IsSuppressed = false;
+                    }
+                }
+                else
+                {
+                    if (!state.IsSuppressed)
+                    {
+                        state.RestoreEnabled = state.Component.enabled;
+                        state.IsSuppressed = true;
+                    }
+
+                    state.Component.enabled = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                SrLogger.LogWarning($"SetAuthoritySensitiveBehaviourState error: {ex.Message}", SrLogTarget.Both);
+            }
+        }
+    }
+
     private void OnDestroy()
     {
         isDestroyed = true;
         isValid = false;
+    }
+
+    private sealed class AuthoritySensitiveBehaviourState
+    {
+        public AuthoritySensitiveBehaviourState(Behaviour component)
+        {
+            Component = component;
+            RestoreEnabled = component.enabled;
+        }
+
+        public Behaviour Component { get; }
+        public bool RestoreEnabled { get; set; }
+        public bool IsSuppressed { get; set; }
     }
 }

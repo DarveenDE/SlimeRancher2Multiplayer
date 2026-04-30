@@ -1,7 +1,10 @@
+using System.Collections;
 using SR2MP.Packets.Loading;
 using SR2MP.Packets.Player;
 using SR2MP.Packets.Utils;
 using SR2MP.Shared.Managers;
+using SR2MP.Shared.Utils;
+using MelonLoader;
 
 namespace SR2MP.Client.Handlers;
 
@@ -12,7 +15,13 @@ public sealed class InitialSyncCompleteHandler : BaseClientPacketHandler<Initial
         : base(client, playerManager) { }
 
     protected override void Handle(InitialSyncCompletePacket packet)
+        => MelonCoroutines.Start(CompleteInitialSyncWhenActorsAreReady());
+
+    private IEnumerator CompleteInitialSyncWhenActorsAreReady()
     {
+        while (NetworkSessionState.InitialActorLoadInProgress)
+            yield return null;
+
         SendPacket(new InitialSyncCompleteAckPacket());
 
         var joinPacket = new PlayerJoinPacket

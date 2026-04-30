@@ -12,6 +12,13 @@ public sealed class MovementSoundHandler : BaseClientPacketHandler<MovementSound
 
     protected override void Handle(MovementSoundPacket packet)
     {
-        RemoteFXManager.PlayTransientAudio(fxManager.AllCues[packet.CueName], packet.Position, 0.8f);
+        if (string.IsNullOrWhiteSpace(packet.CueName)
+            || !fxManager.AllCues.TryGetValue(packet.CueName, out var cue)
+            || !cue)
+        {
+            return;
+        }
+
+        RemoteFXManager.PlayTransientAudio(cue, packet.Position, 0.8f);
     }
 }

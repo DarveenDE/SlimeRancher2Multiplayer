@@ -14,12 +14,14 @@ public sealed class NetworkWeather : MonoBehaviour
 
     private void Update()
     {
+        PerformanceDiagnostics.RecordNetworkWeatherUpdate();
         sendTimer += UnityEngine.Time.deltaTime;
 
         if (sendTimer < Timers.WeatherTimer)
             return;
 
         sendTimer = 0;
+        PerformanceDiagnostics.RecordNetworkWeatherSend();
 
         WeatherUpdateHelper.EnsureLookupInitialized();
         WeatherUpdateHelper.SendWeatherUpdate();

@@ -7,6 +7,7 @@ public sealed class WorldSwitchPacket : IPacket
     public string ID { get; set; }
     public SwitchHandler.State State { get; set; }
     public bool Immediate { get; set; }
+    public bool IsRepairSnapshot { get; set; }
 
     public PacketType Type => PacketType.SwitchActivate;
     public PacketReliability Reliability => PacketReliability.Reliable;
@@ -16,6 +17,7 @@ public sealed class WorldSwitchPacket : IPacket
         writer.WriteString(ID);
         writer.WriteEnum(State);
         writer.WriteBool(Immediate);
+        writer.WriteBool(IsRepairSnapshot);
     }
 
     public void Deserialise(PacketReader reader)
@@ -23,5 +25,6 @@ public sealed class WorldSwitchPacket : IPacket
         ID = reader.ReadString();
         State = reader.ReadEnum<SwitchHandler.State>();
         Immediate = reader.ReadBool();
+        IsRepairSnapshot = reader.ReadBool();
     }
 }

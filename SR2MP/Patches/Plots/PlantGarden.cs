@@ -11,6 +11,15 @@ public static class PlantGarden
         if (!__result)
             return;
 
-        GardenPlotSyncManager.QueueLocalState(__instance.GetComponentInParent<LandPlotLocation>());
+        var location = __instance.GetComponentInParent<LandPlotLocation>();
+        GardenPlotSyncManager.QueueLocalState(location);
+
+        if (location
+            && SceneContext.Instance
+            && SceneContext.Instance.GameModel
+            && SceneContext.Instance.GameModel.landPlots.TryGetValue(location._id, out var model))
+        {
+            GardenGrowthSyncManager.QueueLocalPlotState(model);
+        }
     }
 }

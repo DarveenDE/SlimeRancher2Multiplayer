@@ -1,8 +1,8 @@
-﻿using System.Net;
-using Il2CppMonomiPark.World;
-using SR2MP.Server.Managers;
+using System.Net;
 using SR2MP.Packets.Utils;
 using SR2MP.Packets.World;
+using SR2MP.Server.Managers;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Server.Handlers;
 
@@ -14,18 +14,10 @@ public sealed class AccessDoorHandler : BasePacketHandler<AccessDoorPacket>
 
     protected override void Handle(AccessDoorPacket packet, IPEndPoint senderEndPoint)
     {
-        var model = SceneContext.Instance.GameModel.doors[packet.ID];
+        if (!WorldEventStateSyncManager.ApplyAccessDoorState(packet, "server access door"))
+            return;
 
-        handlingPacket = true;
-        try
-        {
-            model.gameObj.GetComponent<AccessDoor>().CurrState = packet.State;
-        }
-        finally
-        {
-            handlingPacket = false;
-        }
-
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
 }

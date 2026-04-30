@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using SR2MP.Server.Models;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Server.Managers;
 
@@ -32,20 +33,70 @@ public sealed class ClientManager
 
     public ClientInfo AddClient(IPEndPoint endPoint, string playerId)
     {
-        string clientInfo = $"{endPoint.Address}:{endPoint.Port}";
+        if (!TryAddClient(endPoint, playerId, out var client))
+            throw new InvalidOperationException($"Could not add client with player id '{playerId}'.");
 
-        var client = new ClientInfo(endPoint, playerId);
+        return client;
+    }
+
+    public bool TryAddClient(IPEndPoint endPoint, string playerId, out ClientInfo client)
+    {
+        string clientInfo = $"{endPoint.Address}:{endPoint.Port}";
+        client = null!;
+
+        if (!PlayerIdGenerator.IsValidPlayerId(playerId))
+        {
+            SrLogger.LogWarning($"Rejected client with invalid PlayerId: {playerId}", SrLogTarget.Both);
+            return false;
+        }
+
+        var existingForEndpoint = GetClient(clientInfo);
+        if (existingForEndpoint != null)
+        {
+            if (existingForEndpoint.PlayerId != playerId)
+            {
+                SrLogger.LogWarning(
+                    $"Rejected PlayerId change from {existingForEndpoint.PlayerId} to {playerId} for {clientInfo}.",
+                    SrLogTarget.Both);
+                return false;
+            }
+
+            client = existingForEndpoint;
+            SrLogger.LogWarning($"Client already exists! (PlayerId: {playerId})",
+                $"Client already exists: {clientInfo} (PlayerId: {playerId})");
+            return true;
+        }
+
+        foreach (var existing in clients.Values)
+        {
+            if (existing.PlayerId != playerId)
+                continue;
+
+            SrLogger.LogWarning(
+                $"Rejected duplicate PlayerId '{playerId}' from {clientInfo}; already used by {existing.GetClientInfo()}.",
+                SrLogTarget.Both);
+            return false;
+        }
+
+        client = new ClientInfo(endPoint, playerId);
 
         if (clients.TryAdd(clientInfo, client))
         {
             SrLogger.LogMessage($"Client added! (PlayerId: {playerId})",
                 $"Client added: {clientInfo} (PlayerId: {playerId})");
             OnClientAdded?.Invoke(client);
-            return client;
+            return true;
         }
-        SrLogger.LogWarning($"Client already exists! (PlayerId: {playerId})",
-            $"Client already exists: {clientInfo} (PlayerId: {playerId})");
-        return clients[clientInfo];
+
+        if (clients.TryGetValue(clientInfo, out var raceClient) && raceClient.PlayerId == playerId)
+        {
+            client = raceClient;
+            return true;
+        }
+
+        SrLogger.LogWarning($"Failed to add client due to concurrent connect: {clientInfo}", SrLogTarget.Both);
+        client = null!;
+        return false;
     }
 
     public bool RemoveClient(string clientInfo)

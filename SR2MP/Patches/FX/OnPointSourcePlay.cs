@@ -21,6 +21,9 @@ public static class OnPointSourcePlay
             return;
         }
 
+        if (fxType == WorldFXType.GordoFoodEatenSound)
+            return;
+
         var packet = new WorldFXPacket
         {
             FX = fxType,

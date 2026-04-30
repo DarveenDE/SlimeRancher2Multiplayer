@@ -12,32 +12,8 @@ public sealed class LandPlotUpdateHandler : BaseClientPacketHandler<LandPlotUpda
 
     protected override void Handle(LandPlotUpdatePacket packet)
     {
-        var model = SceneContext.Instance.GameModel.landPlots[packet.ID];
-
-        if (!packet.IsUpgrade)
-        {
-            model.typeId = packet.PlotType;
-
-            if (!model.gameObj) return;
-
-            var location = model.gameObj.GetComponent<LandPlotLocation>();
-            var landPlotComponent2 = model.gameObj.GetComponentInChildren<LandPlot>();
-
-            handlingPacket = true;
-            location.Replace(landPlotComponent2,
-                GameContext.Instance.LookupDirector._plotPrefabDict[packet.PlotType]);
-            handlingPacket = false;
-
-            return;
-        }
-
-        model.upgrades.Add(packet.PlotUpgrade);
-
-        if (!model.gameObj) return;
-
-        var landPlotComponent = model.gameObj.GetComponentInChildren<LandPlot>();
-        handlingPacket = true;
-        landPlotComponent.AddUpgrade(packet.PlotUpgrade);
-        handlingPacket = false;
+        WorldEventStateSyncManager.ApplyLandPlotUpdate(
+            packet,
+            packet.IsRepairSnapshot ? "client repair land plot update" : "client land plot update");
     }
 }

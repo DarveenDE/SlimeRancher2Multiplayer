@@ -18,9 +18,13 @@ public sealed class PlayerUpgradeHandler : BasePacketHandler<PlayerUpgradePacket
         var upgrade = model.upgradeDefinitions.items._items.FirstOrDefault(
             x => x._uniqueId == packet.UpgradeID);
 
-        handlingPacket = true;
-        model.IncrementUpgradeLevel(upgrade);
-        handlingPacket = false;
+        if (upgrade == null)
+        {
+            SrLogger.LogWarning($"Ignoring player upgrade with unknown id {packet.UpgradeID}.", SrLogTarget.Both);
+            return;
+        }
+
+        RunWithHandlingPacket(() => model.IncrementUpgradeLevel(upgrade));
 
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }

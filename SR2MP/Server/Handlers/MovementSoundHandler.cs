@@ -14,7 +14,15 @@ public sealed class MovementSoundHandler : BasePacketHandler<MovementSoundPacket
 
     protected override void Handle(MovementSoundPacket packet, IPEndPoint clientEp)
     {
-        RemoteFXManager.PlayTransientAudio(fxManager.AllCues[packet.CueName], packet.Position, 0.45f);
+        if (string.IsNullOrWhiteSpace(packet.CueName)
+            || !fxManager.AllCues.TryGetValue(packet.CueName, out var cue)
+            || !cue)
+        {
+            SrLogger.LogWarning($"Ignoring movement sound with unknown cue '{packet.CueName}'.", SrLogTarget.Both);
+            return;
+        }
+
+        RemoteFXManager.PlayTransientAudio(cue, packet.Position, 0.45f);
 
         Main.Server.SendToAllExcept(packet, clientEp);
     }

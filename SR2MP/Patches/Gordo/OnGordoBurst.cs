@@ -8,7 +8,8 @@ public static class OnGordoBurst
 {
     public static void Prefix(GordoEat __instance)
     {
-        if (handlingPacket) return;
+        if (handlingPacket || (!Main.Server.IsRunning() && !Main.Client.IsConnected))
+            return;
 
         var packet = new GordoBurstPacket
         {

@@ -26,6 +26,7 @@ public sealed class Client
     private const int ConnectionTimeoutSeconds = 30;
 
     private bool shownConnectionError;
+    private int disconnectInProgress;
 
     private readonly ClientPacketManager packetManager;
 
@@ -91,8 +92,7 @@ public sealed class Client
                 SrLogger.LogMessage("Using IPv4 connection", SrLogTarget.Both);
             }
 
-            PacketDeduplication.Clear();
-            PacketChunkManager.Clear();
+            NetworkSessionState.ClearTransientSyncState();
             MainThreadDispatcher.Clear();
 
             serverEndPoint = new IPEndPoint(parsedIp, port);
@@ -332,11 +332,14 @@ public sealed class Client
 
     public void Disconnect(string? localMessage, bool isError = false)
     {
-        if (!isConnected)
+        if (System.Threading.Interlocked.Exchange(ref disconnectInProgress, 1) == 1)
             return;
 
         try
         {
+            if (!isConnected)
+                return;
+
             if (MultiplayerUI.Instance)
             {
                 MultiplayerUI.Instance.ClearChatMessages();
@@ -364,8 +367,7 @@ public sealed class Client
                 SrLogger.LogWarning($"Could not send leave packet: {ex.Message}");
             }
 
-            PacketDeduplication.Clear();
-            PacketChunkManager.Clear();
+            NetworkSessionState.ClearTransientSyncState();
 
             isConnected = false;
             connectionAcknowledged = false;
@@ -424,6 +426,10 @@ public sealed class Client
         catch (Exception ex)
         {
             SrLogger.LogError($"Error during disconnect: {ex}", SrLogTarget.Both);
+        }
+        finally
+        {
+            System.Threading.Volatile.Write(ref disconnectInProgress, 0);
         }
     }
 

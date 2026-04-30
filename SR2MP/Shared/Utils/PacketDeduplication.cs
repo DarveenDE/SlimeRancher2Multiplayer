@@ -11,6 +11,7 @@ public static class PacketDeduplication
 
     private static int processCounter = 0;
     private const int CleanupInterval = 100;
+    private static readonly List<string> _toRemove = new();
 
     public static bool IsDuplicate(string packetType, string uniqueId)
     {
@@ -42,25 +43,19 @@ public static class PacketDeduplication
     private static void Cleanup()
     {
         var now = DateTime.UtcNow;
-        var toRemove = new List<string>();
+        _toRemove.Clear();
 
         foreach (var kvp in ProcessedPackets)
         {
             if (now - kvp.Value > PacketMemoryDuration)
-            {
-                toRemove.Add(kvp.Key);
-            }
+                _toRemove.Add(kvp.Key);
         }
 
-        foreach (var key in toRemove)
-        {
+        foreach (var key in _toRemove)
             ProcessedPackets.TryRemove(key, out _);
-        }
 
-        if (toRemove.Count > 0)
-        {
-            SrLogger.LogPacketSize($"Cleaned up {toRemove.Count} old packet records", SrLogTarget.Both);
-        }
+        if (_toRemove.Count > 0)
+            SrLogger.LogPacketSize($"Cleaned up {_toRemove.Count} old packet records", SrLogTarget.Both);
     }
 
     public static int GetTrackedPacketCount() => ProcessedPackets.Count;

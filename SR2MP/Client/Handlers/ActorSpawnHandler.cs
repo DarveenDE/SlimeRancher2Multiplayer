@@ -19,5 +19,8 @@ public sealed class ActorSpawnHandler : BaseClientPacketHandler<ActorSpawnPacket
         }
 
         actorManager.TrySpawnNetworkActor(packet.ActorId, packet.Position, packet.Rotation, packet.ActorType, packet.SceneGroup, out _);
+        ActorUpdateSyncManager.ApplyPendingForActor(packet.ActorId.Value);
+        GardenGrowthSyncManager.ApplyPendingForActor(packet.ActorId.Value);
+        GardenResourceAttachSyncManager.ApplyPendingForActor(packet.ActorId.Value);
     }
 }

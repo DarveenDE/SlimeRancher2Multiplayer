@@ -1,5 +1,3 @@
-using Il2CppMonomiPark.SlimeRancher.DataModel;
-using Il2CppMonomiPark.SlimeRancher.World;
 using SR2MP.Packets.Switch;
 using SR2MP.Shared.Managers;
 using SR2MP.Packets.Utils;
@@ -14,41 +12,8 @@ public sealed class WorldSwitchHandler : BaseClientPacketHandler<WorldSwitchPack
 
     protected override void Handle(WorldSwitchPacket packet)
     {
-        var gameModel = SceneContext.Instance.GameModel;
-
-        if (gameModel.switches.TryGetValue(packet.ID, out var switchModel))
-        {
-            switchModel.state = packet.State;
-
-            if (!switchModel.gameObj)
-                return;
-            var switchComponentBase = switchModel.gameObj.GetComponent<WorldSwitchModel.Participant>();
-
-            var primary = switchComponentBase.TryCast<WorldStatePrimarySwitch>();
-            var secondary = switchComponentBase.TryCast<WorldStateSecondarySwitch>();
-            var invisible = switchComponentBase.TryCast<WorldStateInvisibleSwitch>();
-
-            handlingPacket = true;
-            try
-            {
-                primary?.SetStateForAll(packet.State, packet.Immediate);
-                secondary?.SetState(packet.State, packet.Immediate);
-                invisible?.SetStateForAll(packet.State, packet.Immediate);
-            }
-            finally
-            {
-                handlingPacket = false;
-            }
-        }
-        else
-        {
-            switchModel = new WorldSwitchModel
-            {
-                gameObj = null,
-                state = packet.State
-            };
-
-            gameModel.switches.Add(packet.ID, switchModel);
-        }
+        WorldEventStateSyncManager.ApplySwitchState(
+            packet,
+            packet.IsRepairSnapshot ? "client repair world switch" : "client world switch");
     }
 }

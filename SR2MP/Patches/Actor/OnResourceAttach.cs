@@ -1,49 +1,60 @@
 ﻿using HarmonyLib;
-using SR2MP.Packets.Actor;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Patches.Actor;
 
 [HarmonyPatch(typeof(ResourceCycle), nameof(ResourceCycle.Attach))]
 public static class OnResourceAttach
 {
-    public static void Prefix(ResourceCycle __instance, Joint joint)
+    public static bool Prefix(ResourceCycle __instance, Joint joint)
     {
-        if (handlingPacket) return;
-        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
-        if (SystemContext.Instance.SceneLoader.IsSceneLoadInProgress) return;
-        if (!__instance || !joint) return;
+        if (handlingPacket) return true;
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return true;
+        if (SystemContext.Instance.SceneLoader.IsSceneLoadInProgress) return true;
+        if (!__instance || !joint) return true;
+
+        if (!Main.Server.IsRunning() && GardenResourceAttachSyncManager.IsGardenJoint(joint))
+        {
+            GardenResourceAttachSyncManager.DestroyLocalResource(
+                __instance,
+                "SR2MP.OnResourceAttach.ClientGardenAttachSuppressed");
+            return false;
+        }
 
         if (joint.connectedBody)
         {
             var other = joint.connectedBody.GetComponent<ResourceCycle>();
             if (!other || other == __instance || other._model == null)
-                return;
+                return true;
 
             SceneContext.Instance.GameModel.identifiables.Remove(other._model.actorId);
-            SceneContext.Instance.GameModel.identifiablesByIdent[other._model.ident].Remove(other._model);
-            SceneContext.Instance.GameModel.DestroyIdentifiableModel(other._model);
+            if (SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(other._model.ident, out var actorsByIdent))
+                actorsByIdent.Remove(other._model);
 
-            Destroyer.DestroyActor(other.gameObject, "SR2MP.OnResourceAttach");
+            SceneContext.Instance.GameModel.DestroyIdentifiableModel(other._model);
+            actorManager.Actors.Remove(other._model.actorId.Value);
+
+            RunWithHandlingPacket(() => Destroyer.DestroyActor(other.gameObject, "SR2MP.OnResourceAttach"));
             joint.connectedBody = null;
-            return;
+            return true;
         }
 
-        var spawner = joint.gameObject.GetComponentInParent<SpawnResource>();
-        if (!spawner)
+        return true;
+    }
+
+    public static void Postfix(ResourceCycle __instance, Joint joint)
+    {
+        if (handlingPacket) return;
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
+        if (SystemContext.Instance.SceneLoader.IsSceneLoadInProgress) return;
+        if (!__instance || !joint) return;
+        if (!Main.Server.IsRunning() && GardenResourceAttachSyncManager.IsGardenJoint(joint)) return;
+
+        var rigidbody = __instance.GetComponent<Rigidbody>();
+        if (!rigidbody || joint.connectedBody != rigidbody)
             return;
-        var index = spawner.SpawnJoints.IndexOf(joint);
 
-        var id = joint.gameObject.GetComponentInParent<LandPlotLocation>()?._id ?? string.Empty;
-
-        var packet = new ResourceAttachPacket
-        {
-            ActorId = __instance._model.actorId,
-            Joint = index,
-            PlotID = id,
-            SpawnerID = spawner.transform.position,
-            Model = spawner._model,
-        };
-
-        // Main.SendToAllOrServer(packet);
+        if (GardenResourceAttachSyncManager.TryCreatePacket(__instance, joint, out var packet))
+            Main.SendToAllOrServer(packet);
     }
 }

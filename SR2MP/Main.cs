@@ -34,6 +34,7 @@ public sealed class Main : SR2EExpansionV3
     public static string SavedHostPort => preferences.GetEntry<string>("host_port").Value;
     internal static bool SetupUI => preferences.GetEntry<bool>("internal_setup_ui").Value;
     public static bool PacketSizeLogging => preferences.GetEntry<bool>("packet_size_log").Value;
+    public static bool PerformanceDiagnosticsEnabled => preferences.GetEntry<bool>("performance_diagnostics").Value;
     public static bool AllowCheats => preferences.GetEntry<bool>("allow_cheats").Value;
 
     // Made this because of a bug in the server handler of ActorSpawnPacket where TrySpawnNetworkActor
@@ -54,6 +55,7 @@ public sealed class Main : SR2EExpansionV3
         preferences.CreateEntry("host_port", "1919", is_hidden: true);
 
         preferences.CreateEntry("packet_size_log", false, display_name: "Packet Size Logging");
+        preferences.CreateEntry("performance_diagnostics", false, display_name: "Performance Diagnostics");
 
         preferences.CreateEntry("internal_setup_ui", true, is_hidden: true);
 
@@ -64,6 +66,7 @@ public sealed class Main : SR2EExpansionV3
         Server = new Server.Server();
         Server.OnServerStarted += WorldStateRepairManager.Start;
         Server.OnServerStopped += WorldStateRepairManager.Stop;
+        PerformanceDiagnostics.Initialize(PerformanceDiagnosticsEnabled);
     }
 
     public override void OnInitializeMelon()
@@ -73,6 +76,8 @@ public sealed class Main : SR2EExpansionV3
 
     public static void SendToAllOrServer<T>(T packet) where T : IPacket
     {
+        PerformanceDiagnostics.RecordSendToAllOrServer((byte)packet.Type, Client.IsConnected, Server.IsRunning());
+
         if (Client.IsConnected)
         {
             Client.SendPacket(packet);
@@ -91,6 +96,7 @@ public sealed class Main : SR2EExpansionV3
             case "SystemCore":
                 StartupCheck.Initialize();
                 MainThreadDispatcher.Initialize();
+                PerformanceDiagnostics.EnsureRunner();
                 DiscordRPCManager.Initialize();
 
                 var forceTimeScale = new GameObject("SR2MP_TimeScale").AddComponent<ForceTimeScale>();

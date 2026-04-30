@@ -1,9 +1,8 @@
 using System.Net;
-using Il2CppMonomiPark.SlimeRancher.DataModel;
-using Il2CppMonomiPark.SlimeRancher.Slime;
 using SR2MP.Packets.Actor;
 using SR2MP.Server.Managers;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Server.Handlers;
 
@@ -15,34 +14,9 @@ public sealed class ActorUpdateHandler : BasePacketHandler<ActorUpdatePacket>
 
     protected override void Handle(ActorUpdatePacket packet, IPEndPoint clientEp)
     {
-        if (!actorManager.Actors.TryGetValue(packet.ActorId.Value, out var model))
-        {
-            return;
-        }
-        var actor = model.Cast<ActorModel>();
-
-        actor.lastPosition = packet.Position;
-        actor.lastRotation = packet.Rotation;
-
-        var slime = actor.TryCast<SlimeModel>();
-        if (slime != null)
-            slime.Emotions = packet.Emotions;
-        if (actor.TryGetNetworkComponent(out var networkComponent))
-        {
-            networkComponent.SavedVelocity = packet.Velocity;
-            networkComponent.nextPosition = packet.Position;
-            networkComponent.nextRotation = packet.Rotation;
-
-            if (slime != null)
-                networkComponent.GetComponent<SlimeEmotions>().SetAll(packet.Emotions);
-
-            if (networkComponent.regionMember?._hibernating == true)
-            {
-                networkComponent.transform.position = packet.Position;
-                networkComponent.transform.rotation = packet.Rotation;
-            }
-        }
-
-        Main.Server.SendToAllExcept(packet, clientEp);
+        ActorUpdateSyncManager.ApplyOrQueue(
+            packet,
+            "server actor update",
+            appliedPacket => Main.Server.SendToAllExcept(appliedPacket, clientEp));
     }
 }

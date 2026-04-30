@@ -14,18 +14,29 @@ public sealed class CurrencyHandler : BasePacketHandler<CurrencyPacket>
 
     protected override void Handle(CurrencyPacket packet, IPEndPoint clientEp)
     {
-        var currency = GameContext.Instance.LookupDirector._currencyList._currencies[packet.CurrencyType - 1];
+        var currencies = GameContext.Instance.LookupDirector._currencyList._currencies;
+        var currencyIndex = packet.CurrencyType - 1;
+        if (currencyIndex < 0 || currencyIndex >= currencies.Count)
+        {
+            SrLogger.LogWarning($"Ignoring currency update with invalid currency type {packet.CurrencyType}.", SrLogTarget.Both);
+            return;
+        }
 
-        var currencyDefinition = currency!.Cast<ICurrency>();
+        var currency = currencies[currencyIndex];
+        if (!currency)
+            return;
+
+        var currencyDefinition = currency.Cast<ICurrency>();
 
         var difference = packet.NewAmount - SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
 
-        handlingPacket = true;
-        if (difference < 0)
-            SceneContext.Instance.PlayerState.SpendCurrency(currencyDefinition, -difference);
-        else
-            SceneContext.Instance.PlayerState.AddCurrency(currencyDefinition, difference, packet.ShowUINotification);
-        handlingPacket = false;
+        RunWithHandlingPacket(() =>
+        {
+            if (difference < 0)
+                SceneContext.Instance.PlayerState.SpendCurrency(currencyDefinition, -difference);
+            else
+                SceneContext.Instance.PlayerState.AddCurrency(currencyDefinition, difference, packet.ShowUINotification);
+        });
 
         Main.Server.SendToAllExcept(packet, clientEp);
     }

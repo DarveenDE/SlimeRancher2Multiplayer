@@ -7,6 +7,7 @@ public sealed class AccessDoorPacket : IPacket
 {
     public string ID { get; set; }
     public AccessDoor.State State { get; set; }
+    public bool IsRepairSnapshot { get; set; }
 
     public PacketType Type => PacketType.AccessDoor;
     public PacketReliability Reliability => PacketReliability.Reliable;
@@ -15,11 +16,13 @@ public sealed class AccessDoorPacket : IPacket
     {
         writer.WriteString(ID);
         writer.WriteEnum(State);
+        writer.WriteBool(IsRepairSnapshot);
     }
 
     public void Deserialise(PacketReader reader)
     {
         ID = reader.ReadString();
         State = reader.ReadEnum<AccessDoor.State>();
+        IsRepairSnapshot = reader.ReadBool();
     }
 }

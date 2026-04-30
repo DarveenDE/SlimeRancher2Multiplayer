@@ -24,5 +24,21 @@ public sealed class GardenPlantHandler : BasePacketHandler<GardenPlantPacket>
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, clientEp);
+        SendAuthoritativeGrowthState(packet.ID);
+    }
+
+    private static void SendAuthoritativeGrowthState(string plotId)
+    {
+        if (string.IsNullOrWhiteSpace(plotId)
+            || !SceneContext.Instance
+            || !SceneContext.Instance.GameModel
+            || !SceneContext.Instance.GameModel.landPlots.TryGetValue(plotId, out var plot)
+            || plot == null)
+        {
+            return;
+        }
+
+        if (GardenGrowthSyncManager.TryCreateSnapshot(plot, plotId, out var growthPacket))
+            Main.Server.SendToAll(growthPacket);
     }
 }
