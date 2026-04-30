@@ -54,6 +54,11 @@ public sealed class NetworkManager
         }
         catch (Exception ex)
         {
+            isRunning = false;
+            reliabilityManager?.Stop();
+            reliabilityManager = null;
+            udpClient?.Close();
+            udpClient = null;
             SrLogger.LogError($"Failed to start Server: {ex}", SrLogTarget.Both);
             throw;
         }
@@ -226,7 +231,9 @@ public sealed class NetworkManager
         try
         {
             reliabilityManager?.Stop();
+            reliabilityManager = null;
             udpClient?.Close();
+            udpClient = null;
 
             if (receiveThread is { IsAlive: true })
             {

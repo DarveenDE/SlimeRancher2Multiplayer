@@ -8,6 +8,9 @@ namespace SR2MP.Shared.Managers;
 public static class GardenPlotSyncManager
 {
     private static readonly HashSet<string> PendingPlotIds = new();
+    private static readonly Dictionary<string, PendingGardenState> PendingRemoteStates = new();
+    private const float PendingRemoteApplyTimeoutSeconds = 10f;
+    private static bool remoteStateApplyRunning;
 
     public static void QueueLocalState(LandPlotLocation? location)
     {
@@ -86,9 +89,34 @@ public static class GardenPlotSyncManager
 
     public static bool ApplyRemoteState(string plotId, bool hasCrop, int cropType, string source)
     {
+        if (ApplyRemoteStateNow(plotId, hasCrop, cropType, source, out var shouldRetry))
+            return true;
+
+        if (shouldRetry)
+            QueueRemoteState(plotId, hasCrop, cropType, source);
+
+        return false;
+    }
+
+    private static bool ApplyRemoteStateNow(
+        string plotId,
+        bool hasCrop,
+        int cropType,
+        string source,
+        out bool shouldRetry)
+    {
+        shouldRetry = false;
+
+        if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
+        {
+            shouldRetry = true;
+            return false;
+        }
+
         if (!SceneContext.Instance.GameModel.landPlots.TryGetValue(plotId, out var model))
         {
             SrLogger.LogWarning($"Ignoring garden state for unknown plot '{plotId}' from {source}.", SrLogTarget.Main);
+            shouldRetry = true;
             return false;
         }
 
@@ -109,10 +137,13 @@ public static class GardenPlotSyncManager
         if (!TryGetCropDefinition(cropType, out var actor, out var resourceGrowerDefinition))
         {
             SrLogger.LogWarning($"Ignoring garden state for plot '{plotId}' with unknown crop type {cropType} from {source}.", SrLogTarget.Main);
+            shouldRetry = true;
             return false;
         }
 
-        return PlantCrop(model, actor, resourceGrowerDefinition, plotId, source);
+        var planted = PlantCrop(model, actor, resourceGrowerDefinition, plotId, source);
+        shouldRetry = !planted;
+        return planted;
     }
 
     private static IEnumerator SendLocalStateNextFrame(string plotId)
@@ -227,5 +258,75 @@ public static class GardenPlotSyncManager
         model.resourceGrowerDefinition = resourceGrowerDefinition;
         model.NotifyParticipants();
         return true;
+    }
+
+    private static void QueueRemoteState(string plotId, bool hasCrop, int cropType, string source)
+    {
+        if (string.IsNullOrWhiteSpace(plotId))
+            return;
+
+        PendingRemoteStates[plotId] = new PendingGardenState(plotId, hasCrop, cropType, source);
+        SrLogger.LogDebug($"Queued garden state for plot '{plotId}' from {source}; target is not ready yet.", SrLogTarget.Main);
+
+        if (remoteStateApplyRunning)
+            return;
+
+        remoteStateApplyRunning = true;
+        MelonCoroutines.Start(ApplyPendingRemoteStatesWhenReady());
+    }
+
+    private static IEnumerator ApplyPendingRemoteStatesWhenReady()
+    {
+        var timeoutAt = UnityEngine.Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds;
+        while (PendingRemoteStates.Count > 0 && UnityEngine.Time.realtimeSinceStartup < timeoutAt)
+        {
+            var pending = PendingRemoteStates.Values.ToList();
+            foreach (var item in pending)
+            {
+                handlingPacket = true;
+                try
+                {
+                    if (ApplyRemoteStateNow(
+                            item.PlotId,
+                            item.HasCrop,
+                            item.CropType,
+                            $"{item.Source} retry",
+                            out _))
+                    {
+                        PendingRemoteStates.Remove(item.PlotId);
+                    }
+                }
+                finally { handlingPacket = false; }
+            }
+
+            if (PendingRemoteStates.Count > 0)
+                yield return null;
+        }
+
+        if (PendingRemoteStates.Count > 0)
+        {
+            SrLogger.LogWarning(
+                $"Could not apply {PendingRemoteStates.Count} queued garden state update(s); target models never became ready.",
+                SrLogTarget.Both);
+            PendingRemoteStates.Clear();
+        }
+
+        remoteStateApplyRunning = false;
+    }
+
+    private sealed class PendingGardenState
+    {
+        public PendingGardenState(string plotId, bool hasCrop, int cropType, string source)
+        {
+            PlotId = plotId;
+            HasCrop = hasCrop;
+            CropType = cropType;
+            Source = source;
+        }
+
+        public string PlotId { get; }
+        public bool HasCrop { get; }
+        public int CropType { get; }
+        public string Source { get; }
     }
 }

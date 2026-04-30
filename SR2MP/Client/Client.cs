@@ -30,8 +30,12 @@ public sealed class Client
     private readonly ClientPacketManager packetManager;
 
     public bool IsConnected => isConnected;
+    public bool IsConnectionPending => isConnected && !connectionAcknowledged;
     public string OwnPlayerId { get; private set; } = string.Empty;
+    public string LastConnectionError { get; private set; } = string.Empty;
 
+    public event Action<string, int>? OnConnectionStarted;
+    public event Action<string>? OnConnectionFailed;
     public event Action<string>? OnConnected;
     public event Action? OnDisconnected;
     public event Action<string>? OnPlayerJoined;
@@ -47,22 +51,28 @@ public sealed class Client
         playerManager.OnPlayerUpdated += (playerId, player) => OnPlayerUpdate?.Invoke(playerId, player);
     }
 
-    public void Connect(string serverIp, int port)
+    public bool Connect(string serverIp, int port)
     {
         if (Main.Server.IsRunning())
         {
             SrLogger.LogWarning("You can not join a world while hosting a server.", SrLogTarget.Both);
-            return;
+            NotifyConnectionFailed("Close your hosted world before joining another one.");
+            return false;
         }
 
         if (isConnected)
         {
             SrLogger.LogWarning("You are already connected to a Server!", SrLogTarget.Both);
-            return;
+            NotifyConnectionFailed("You are already connected to a hosted world.");
+            return false;
         }
 
         try
         {
+            shownConnectionError = false;
+            connectionAcknowledged = false;
+            LastConnectionError = string.Empty;
+
             IPAddress parsedIp = IPAddress.Parse(serverIp);
 
             if (parsedIp.AddressFamily == AddressFamily.InterNetworkV6)
@@ -121,14 +131,28 @@ public sealed class Client
 
             SendPacket(connectPacket);
 
+            OnConnectionStarted?.Invoke(serverIp, port);
+
             SrLogger.LogMessage("Connecting to the Server...",
                 $"Connecting to {serverIp}:{port} as {OwnPlayerId}...");
+
+            return true;
         }
         catch (Exception ex)
         {
             SrLogger.LogError($"Error connecting to the Server: {ex}", SrLogTarget.Both);
             isConnected = false;
-            throw;
+            connectionAcknowledged = false;
+            connectionTimeoutTimer?.Dispose();
+            connectionTimeoutTimer = null;
+            reliabilityManager?.Stop();
+            reliabilityManager = null;
+            udpClient?.Close();
+            udpClient = null;
+            serverEndPoint = null;
+
+            NotifyConnectionFailed($"Could not connect to {serverIp}:{port}. {ex.Message}");
+            return false;
         }
     }
 
@@ -136,7 +160,14 @@ public sealed class Client
     {
         if (connectionAcknowledged || !isConnected)
             return;
+        const string timeoutMessage = "Connection timed out while syncing the hosted world.";
         SrLogger.LogError($"Connection timeout: Server did not finish initial sync within {ConnectionTimeoutSeconds} seconds", SrLogTarget.Both);
+        shownConnectionError = true;
+        MultiplayerUI.Instance?.RegisterSystemMessage(
+            timeoutMessage,
+            $"SYSTEM_JOIN_TIMEOUT_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+            MultiplayerUI.SystemMessageClose);
+        NotifyConnectionFailed(timeoutMessage);
         Disconnect();
     }
 
@@ -172,14 +203,19 @@ public sealed class Client
             }
             catch (SocketException ex)
             {
+                if (!isConnected)
+                    break;
+
                 // This prevents WSAEINTR from logging, this is correct
                 if (ex.ErrorCode != 10004 && ex.ErrorCode != 10054)
                 {
                     SrLogger.LogError($"ReceiveLoop error: Socket Exception:{ex.ErrorCode}\n{ex}", SrLogTarget.Both);
                 }
 
+                string message = "Connection to the hosted world was lost.";
                 if (ex.ErrorCode == 10054)
                 {
+                    message = "Could not join the world. Check whether the server is running and reachable.";
                     if (!shownConnectionError)
                     {
                         SrLogger.LogError("The server is not running!\n" +
@@ -189,7 +225,9 @@ public sealed class Client
                     }
                 }
 
-                MultiplayerUI.Instance.RegisterSystemMessage("Could not join the world, check the MelonLoader console for details", $"SYSTEM_JOIN_10054_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
+                shownConnectionError = true;
+                MultiplayerUI.Instance?.RegisterSystemMessage(message, $"SYSTEM_JOIN_{ex.ErrorCode}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
+                NotifyConnectionFailed(message);
                 Disconnect();
             }
             catch (Exception ex)
@@ -290,18 +328,27 @@ public sealed class Client
         return reliabilityManager?.ShouldProcessOrderedPacket(sender, sequenceNumber, packetType) ?? true;
     }
 
-    public void Disconnect()
+    public void Disconnect() => Disconnect(null, false);
+
+    public void Disconnect(string? localMessage, bool isError = false)
     {
         if (!isConnected)
             return;
 
         try
         {
-            MultiplayerUI.Instance.ClearChatMessages();
-            if (!shownConnectionError)
+            if (MultiplayerUI.Instance)
             {
-                MultiplayerUI.Instance.RegisterSystemMessage("You disconnected from the world!", $"SYSTEM_DISCONNECT_LOCAL_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageDisconnect);
+                MultiplayerUI.Instance.ClearChatMessages();
+                if (!shownConnectionError)
+                {
+                    MultiplayerUI.Instance.RegisterSystemMessage(
+                        localMessage ?? "You disconnected from the world.",
+                        $"SYSTEM_DISCONNECT_LOCAL_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                        isError ? MultiplayerUI.SystemMessageClose : MultiplayerUI.SystemMessageDisconnect);
+                }
             }
+
             try
             {
                 var leavePacket = new PlayerLeavePacket
@@ -321,6 +368,7 @@ public sealed class Client
             PacketChunkManager.Clear();
 
             isConnected = false;
+            connectionAcknowledged = false;
 
             if (heartbeatTimer != null)
             {
@@ -335,12 +383,14 @@ public sealed class Client
             }
 
             reliabilityManager?.Stop();
+            reliabilityManager = null;
 
             if (udpClient != null)
             {
                 udpClient.Close();
                 udpClient = null;
             }
+            serverEndPoint = null;
 
             MainThreadDispatcher.Clear();
 
@@ -369,6 +419,7 @@ public sealed class Client
 
             SrLogger.LogMessage("Disconnected from server", SrLogTarget.Both);
             OnDisconnected?.Invoke();
+            shownConnectionError = false;
         }
         catch (Exception ex)
         {
@@ -379,6 +430,7 @@ public sealed class Client
     internal void NotifyConnected()
     {
         connectionAcknowledged = true;
+        LastConnectionError = string.Empty;
 
         if (connectionTimeoutTimer != null)
         {
@@ -387,6 +439,12 @@ public sealed class Client
         }
 
         OnConnected?.Invoke(OwnPlayerId);
+    }
+
+    private void NotifyConnectionFailed(string message)
+    {
+        LastConnectionError = message;
+        OnConnectionFailed?.Invoke(message);
     }
 
     public static RemotePlayer? GetRemotePlayer(string playerId)

@@ -12,6 +12,9 @@ public sealed class PuzzleSlotStateHandler : BaseClientPacketHandler<PuzzleSlotS
 
     protected override void Handle(PuzzleSlotStatePacket packet)
     {
-        PuzzleStateSyncManager.ApplySlotState(packet.ID, packet.Filled, "client puzzle slot");
+        PuzzleStateSyncManager.ApplySlotState(
+            packet.ID,
+            packet.Filled,
+            packet.IsRepairSnapshot ? "client repair puzzle slot" : "client puzzle slot");
     }
 }

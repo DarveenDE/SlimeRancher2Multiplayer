@@ -1,4 +1,5 @@
 using Il2CppMonomiPark.SlimeRancher.DataModel;
+using MelonLoader;
 using SR2MP.Packets.Landplot;
 using SR2MP.Packets.Loading;
 
@@ -6,6 +7,10 @@ namespace SR2MP.Shared.Managers;
 
 public static class LandPlotFeederSyncManager
 {
+    private static readonly Dictionary<string, PendingFeederState> PendingRemoteStates = new();
+    private const float PendingRemoteApplyTimeoutSeconds = 10f;
+    private static bool remoteStateApplyRunning;
+
     public static InitialLandPlotsPacket.FeederStateData CreateState(LandPlotModel model)
         => new()
         {
@@ -46,6 +51,15 @@ public static class LandPlotFeederSyncManager
         if (string.IsNullOrEmpty(plotId) || state == null)
             return false;
 
+        if (ApplyStateNow(plotId, state, source))
+            return true;
+
+        QueueRemoteState(plotId, state, source);
+        return false;
+    }
+
+    private static bool ApplyStateNow(string plotId, InitialLandPlotsPacket.FeederStateData state, string source)
+    {
         if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
             return false;
 
@@ -69,6 +83,50 @@ public static class LandPlotFeederSyncManager
         return true;
     }
 
+    private static void QueueRemoteState(string plotId, InitialLandPlotsPacket.FeederStateData state, string source)
+    {
+        PendingRemoteStates[plotId] = new PendingFeederState(plotId, state, source);
+        SrLogger.LogDebug($"Queued feeder state for plot '{plotId}' from {source}; target is not ready yet.", SrLogTarget.Main);
+
+        if (remoteStateApplyRunning)
+            return;
+
+        remoteStateApplyRunning = true;
+        MelonCoroutines.Start(ApplyPendingRemoteStatesWhenReady());
+    }
+
+    private static System.Collections.IEnumerator ApplyPendingRemoteStatesWhenReady()
+    {
+        var timeoutAt = UnityEngine.Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds;
+        while (PendingRemoteStates.Count > 0 && UnityEngine.Time.realtimeSinceStartup < timeoutAt)
+        {
+            var pending = PendingRemoteStates.Values.ToList();
+            foreach (var item in pending)
+            {
+                handlingPacket = true;
+                try
+                {
+                    if (ApplyStateNow(item.PlotId, item.State, $"{item.Source} retry"))
+                        PendingRemoteStates.Remove(item.PlotId);
+                }
+                finally { handlingPacket = false; }
+            }
+
+            if (PendingRemoteStates.Count > 0)
+                yield return null;
+        }
+
+        if (PendingRemoteStates.Count > 0)
+        {
+            SrLogger.LogWarning(
+                $"Could not apply {PendingRemoteStates.Count} queued feeder state update(s); target models never became ready.",
+                SrLogTarget.Both);
+            PendingRemoteStates.Clear();
+        }
+
+        remoteStateApplyRunning = false;
+    }
+
     private static bool TryFindPlotId(LandPlotModel model, out string plotId)
     {
         plotId = string.Empty;
@@ -89,5 +147,19 @@ public static class LandPlotFeederSyncManager
         }
 
         return false;
+    }
+
+    private sealed class PendingFeederState
+    {
+        public PendingFeederState(string plotId, InitialLandPlotsPacket.FeederStateData state, string source)
+        {
+            PlotId = plotId;
+            State = state;
+            Source = source;
+        }
+
+        public string PlotId { get; }
+        public InitialLandPlotsPacket.FeederStateData State { get; }
+        public string Source { get; }
     }
 }

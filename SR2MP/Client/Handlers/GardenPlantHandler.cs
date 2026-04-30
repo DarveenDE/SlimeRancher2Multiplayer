@@ -15,7 +15,11 @@ public sealed class GardenPlantHandler : BaseClientPacketHandler<GardenPlantPack
         handlingPacket = true;
         try
         {
-            GardenPlotSyncManager.ApplyRemoteState(packet.ID, packet.HasCrop, packet.ActorType, "client garden plant");
+            GardenPlotSyncManager.ApplyRemoteState(
+                packet.ID,
+                packet.HasCrop,
+                packet.ActorType,
+                packet.IsRepairSnapshot ? "client repair garden plant" : "client garden plant");
         }
         finally { handlingPacket = false; }
     }

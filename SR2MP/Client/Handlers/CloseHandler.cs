@@ -14,6 +14,6 @@ public sealed class CloseHandler : BaseClientPacketHandler<ClosePacket>
     {
         SrLogger.LogMessage("Server closed, disconnecting!", SrLogTarget.Both);
 
-        Client.Disconnect();
+        Client.Disconnect("The hosted world was closed.", true);
     }
 }

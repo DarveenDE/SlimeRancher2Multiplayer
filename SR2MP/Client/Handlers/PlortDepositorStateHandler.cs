@@ -12,6 +12,9 @@ public sealed class PlortDepositorStateHandler : BaseClientPacketHandler<PlortDe
 
     protected override void Handle(PlortDepositorStatePacket packet)
     {
-        PuzzleStateSyncManager.ApplyDepositorState(packet.ID, packet.AmountDeposited, "client plort depositor");
+        PuzzleStateSyncManager.ApplyDepositorState(
+            packet.ID,
+            packet.AmountDeposited,
+            packet.IsRepairSnapshot ? "client repair plort depositor" : "client plort depositor");
     }
 }

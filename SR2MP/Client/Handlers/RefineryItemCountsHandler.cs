@@ -15,7 +15,9 @@ public sealed class RefineryItemCountsHandler : BaseClientPacketHandler<Refinery
         try
         {
             handlingPacket = true;
-            RefinerySyncManager.ApplyCounts(packet.Items, "client refinery counts");
+            RefinerySyncManager.ApplyCounts(
+                packet.Items,
+                packet.IsRepairSnapshot ? "client repair refinery counts" : "client refinery counts");
         }
         finally
         {

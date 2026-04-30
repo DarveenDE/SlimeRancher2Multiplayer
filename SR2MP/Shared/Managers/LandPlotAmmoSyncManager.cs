@@ -8,7 +8,10 @@ namespace SR2MP.Shared.Managers;
 public static class LandPlotAmmoSyncManager
 {
     private static readonly Dictionary<IntPtr, AmmoModel> PendingLocalAmmoModels = new();
+    private static readonly Dictionary<string, PendingRemoteAmmoSet> PendingRemoteAmmoSets = new();
+    private const float PendingRemoteApplyTimeoutSeconds = 10f;
     private static bool localAmmoSendRunning;
+    private static bool remoteAmmoApplyRunning;
 
     public static List<InitialLandPlotsPacket.AmmoSetData> CreateAmmoSets(LandPlotModel model)
     {
@@ -76,18 +79,28 @@ public static class LandPlotAmmoSyncManager
 
     public static void ApplyAmmoSets(LandPlotModel model, List<InitialLandPlotsPacket.AmmoSetData>? ammoSets, string plotId)
     {
-        if (ammoSets == null || ammoSets.Count == 0 || model.siloAmmo == null)
+        if (ammoSets == null || ammoSets.Count == 0)
             return;
+
+        if (model.siloAmmo == null)
+        {
+            foreach (var ammoSet in ammoSets)
+                QueueRemoteAmmoSet(plotId, ammoSet, "initial land plot ammo");
+
+            return;
+        }
 
         foreach (var ammoSet in ammoSets)
         {
             if (!model.siloAmmo.TryGetValue(ammoSet.Key, out var ammoModel) || ammoModel == null)
             {
                 SrLogger.LogDebug($"Skipping unknown ammo set '{ammoSet.Key}' for plot '{plotId}'.", SrLogTarget.Main);
+                QueueRemoteAmmoSet(plotId, ammoSet, "initial land plot ammo");
                 continue;
             }
 
-            ApplySlots(ammoModel, ammoSet, plotId);
+            if (!ApplySlots(ammoModel, ammoSet, plotId))
+                QueueRemoteAmmoSet(plotId, ammoSet, "initial land plot ammo");
         }
     }
 
@@ -96,6 +109,15 @@ public static class LandPlotAmmoSyncManager
         if (string.IsNullOrEmpty(plotId) || ammoSet == null)
             return false;
 
+        if (ApplyAmmoSetNow(plotId, ammoSet, source))
+            return true;
+
+        QueueRemoteAmmoSet(plotId, ammoSet, source);
+        return false;
+    }
+
+    private static bool ApplyAmmoSetNow(string plotId, InitialLandPlotsPacket.AmmoSetData ammoSet, string source)
+    {
         if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
             return false;
 
@@ -111,8 +133,7 @@ public static class LandPlotAmmoSyncManager
             return false;
         }
 
-        ApplySlots(ammoModel, ammoSet, plotId);
-        return true;
+        return ApplySlots(ammoModel, ammoSet, plotId);
     }
 
     private static InitialLandPlotsPacket.AmmoSetData CreateAmmoSet(string key, AmmoModel ammoModel)
@@ -145,13 +166,14 @@ public static class LandPlotAmmoSyncManager
         };
     }
 
-    private static void ApplySlots(AmmoModel ammoModel, InitialLandPlotsPacket.AmmoSetData ammoSet, string plotId)
+    private static bool ApplySlots(AmmoModel ammoModel, InitialLandPlotsPacket.AmmoSetData ammoSet, string plotId)
     {
         var slots = ammoModel.Slots;
         if (slots == null)
-            return;
+            return false;
 
         var count = Math.Min(slots.Length, ammoSet.Slots.Count);
+        var appliedAllSlots = true;
         for (var i = 0; i < count; i++)
         {
             var targetSlot = slots[i];
@@ -170,6 +192,7 @@ public static class LandPlotAmmoSyncManager
                 SrLogger.LogWarning(
                     $"Skipping unknown stored item type {sourceSlot.IdentifiableType} for ammo set '{ammoSet.Key}' on plot '{plotId}'.",
                     SrLogTarget.Main);
+                appliedAllSlots = false;
                 continue;
             }
 
@@ -179,6 +202,7 @@ public static class LandPlotAmmoSyncManager
         }
 
         ammoModel.Push(slots);
+        return appliedAllSlots;
     }
 
     private static System.Collections.IEnumerator SendQueuedLocalAmmoSets()
@@ -209,5 +233,71 @@ public static class LandPlotAmmoSyncManager
         }
 
         localAmmoSendRunning = false;
+    }
+
+    private static void QueueRemoteAmmoSet(
+        string plotId,
+        InitialLandPlotsPacket.AmmoSetData ammoSet,
+        string source)
+    {
+        if (string.IsNullOrWhiteSpace(plotId) || ammoSet == null)
+            return;
+
+        PendingRemoteAmmoSets[$"{plotId}|{ammoSet.Key}"] = new PendingRemoteAmmoSet(plotId, ammoSet, source);
+        SrLogger.LogDebug($"Queued land plot ammo set '{ammoSet.Key}' for plot '{plotId}' from {source}; target is not ready yet.", SrLogTarget.Main);
+
+        if (remoteAmmoApplyRunning)
+            return;
+
+        remoteAmmoApplyRunning = true;
+        MelonCoroutines.Start(ApplyPendingRemoteAmmoSetsWhenReady());
+    }
+
+    private static System.Collections.IEnumerator ApplyPendingRemoteAmmoSetsWhenReady()
+    {
+        var timeoutAt = UnityEngine.Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds;
+        while (PendingRemoteAmmoSets.Count > 0 && UnityEngine.Time.realtimeSinceStartup < timeoutAt)
+        {
+            var pending = PendingRemoteAmmoSets.Values.ToList();
+            foreach (var item in pending)
+            {
+                handlingPacket = true;
+                try
+                {
+                    if (ApplyAmmoSetNow(item.PlotId, item.AmmoSet, $"{item.Source} retry"))
+                        PendingRemoteAmmoSets.Remove(item.Key);
+                }
+                finally { handlingPacket = false; }
+            }
+
+            if (PendingRemoteAmmoSets.Count > 0)
+                yield return null;
+        }
+
+        if (PendingRemoteAmmoSets.Count > 0)
+        {
+            SrLogger.LogWarning(
+                $"Could not apply {PendingRemoteAmmoSets.Count} queued land plot ammo update(s); target models never became ready.",
+                SrLogTarget.Both);
+            PendingRemoteAmmoSets.Clear();
+        }
+
+        remoteAmmoApplyRunning = false;
+    }
+
+    private sealed class PendingRemoteAmmoSet
+    {
+        public PendingRemoteAmmoSet(string plotId, InitialLandPlotsPacket.AmmoSetData ammoSet, string source)
+        {
+            PlotId = plotId;
+            AmmoSet = ammoSet;
+            Source = source;
+            Key = $"{plotId}|{ammoSet.Key}";
+        }
+
+        public string PlotId { get; }
+        public InitialLandPlotsPacket.AmmoSetData AmmoSet { get; }
+        public string Source { get; }
+        public string Key { get; }
     }
 }

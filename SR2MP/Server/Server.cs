@@ -22,6 +22,8 @@ public sealed class Server
     public int Port { get; private set; }
 
     public event Action? OnServerStarted;
+    public event Action<string>? OnServerStartFailed;
+    public event Action? OnServerStopped;
 
     public Server()
     {
@@ -37,18 +39,20 @@ public sealed class Server
 
     public bool IsRunning() => networkManager.IsRunning;
 
-    public void Start(int port, bool enableIPv6)
+    public bool Start(int port, bool enableIPv6)
     {
         if (Main.Client.IsConnected)
         {
+            const string message = "Disconnect before hosting your own world.";
             SrLogger.LogWarning("You are already connected to a server, restart your game to host your own server");
-            return;
+            OnServerStartFailed?.Invoke(message);
+            return false;
         }
 
         if (networkManager.IsRunning)
         {
             SrLogger.LogMessage("Server is already running!", SrLogTarget.Both);
-            return;
+            return true;
         }
 
         try
@@ -64,15 +68,22 @@ public sealed class Server
             // Commented because we don't need this yet
             // timeoutTimer = new Timer(CheckTimeouts, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
             OnServerStarted?.Invoke();
-            MultiplayerUI.Instance.RegisterSystemMessage(
-                "The world is now open to others!",
-                $"SYSTEM_HOST_START_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
-                MultiplayerUI.SystemMessageConnect
-            );
+            if (MultiplayerUI.Instance)
+            {
+                MultiplayerUI.Instance.RegisterSystemMessage(
+                    "The world is now open to others!",
+                    $"SYSTEM_HOST_START_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                    MultiplayerUI.SystemMessageConnect
+                );
+            }
+
+            return true;
         }
         catch (Exception ex)
         {
             SrLogger.LogError($"Failed to start server: {ex}", SrLogTarget.Both);
+            OnServerStartFailed?.Invoke($"Could not host on port {port}. {DescribeStartFailure(ex)}");
+            return false;
         }
     }
 
@@ -130,8 +141,11 @@ public sealed class Server
         };
         SendToAll(closeChatMessage);
 
-        MultiplayerUI.Instance.ClearChatMessages();
-        MultiplayerUI.Instance.RegisterSystemMessage("You closed the server!", $"SYSTEM_CLOSE_HOST_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
+        if (MultiplayerUI.Instance)
+        {
+            MultiplayerUI.Instance.ClearChatMessages();
+            MultiplayerUI.Instance.RegisterSystemMessage("You closed the server!", $"SYSTEM_CLOSE_HOST_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
+        }
 
         try
         {
@@ -171,6 +185,7 @@ public sealed class Server
             MainThreadDispatcher.Clear();
 
             SrLogger.LogMessage("Server closed", SrLogTarget.Both);
+            OnServerStopped?.Invoke();
         }
         catch (Exception ex)
         {
@@ -271,5 +286,17 @@ public sealed class Server
             return true;
 
         return client.QueueUntilInitialSyncComplete(data, reliability);
+    }
+
+    private static string DescribeStartFailure(Exception ex)
+    {
+        if (ex is System.Net.Sockets.SocketException socketException)
+        {
+            return socketException.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse
+                ? "That port is already in use."
+                : socketException.Message;
+        }
+
+        return "Check the SR2MP log for details.";
     }
 }

@@ -10,6 +10,7 @@ public sealed partial class MultiplayerUI : MonoBehaviour
     public static MultiplayerUI Instance { get; private set; }
 
     private bool didUnfocus = false;
+    private int openHubDiagnosticFrames;
 
     private void Awake()
     {
@@ -18,8 +19,11 @@ public sealed partial class MultiplayerUI : MonoBehaviour
         usernameInput = Main.Username;
         allowCheatsInput = Main.AllowCheats;
         ipInput = Main.SavedConnectIP;
-        portInput = Main.SavedConnectPort;
         hostPortInput = Main.SavedHostPort;
+        portInput = string.IsNullOrWhiteSpace(Main.SavedConnectPort)
+            ? hostPortInput
+            : Main.SavedConnectPort;
+        LoadRecentServers();
 
         if (Instance)
         {
@@ -29,26 +33,49 @@ public sealed partial class MultiplayerUI : MonoBehaviour
         }
 
         Instance = this;
+
+        Main.Client.OnConnectionStarted += HandleClientConnectionStarted;
+        Main.Client.OnConnected += HandleClientConnected;
+        Main.Client.OnConnectionFailed += HandleClientConnectionFailed;
+        Main.Client.OnDisconnected += HandleClientDisconnected;
+        Main.Server.OnServerStarted += HandleServerStarted;
+        Main.Server.OnServerStartFailed += HandleServerStartFailed;
+        Main.Server.OnServerStopped += HandleServerStopped;
     }
 
     private void OnDestroy()
     {
-        Instance = null!;
+        if (Instance == this)
+        {
+            Main.Client.OnConnectionStarted -= HandleClientConnectionStarted;
+            Main.Client.OnConnected -= HandleClientConnected;
+            Main.Client.OnConnectionFailed -= HandleClientConnectionFailed;
+            Main.Client.OnDisconnected -= HandleClientDisconnected;
+            Main.Server.OnServerStarted -= HandleServerStarted;
+            Main.Server.OnServerStartFailed -= HandleServerStartFailed;
+            Main.Server.OnServerStopped -= HandleServerStopped;
+            Instance = null!;
+        }
     }
 
     private void OnGUI()
     {
         if (Event.current.type == EventType.Layout)
         {
+            ProcessPendingStatusUpdates();
             state = GetState();
             UpdateChatVisibility();
         }
 
-        if (!MenuEUtil.isAnyMenuOpen)
+        bool sr2eMenuOpen = MenuEUtil.isAnyMenuOpen;
+        if (!sr2eMenuOpen || !multiplayerUIHidden)
         {
+            var previousDepth = GUI.depth;
+            GUI.depth = -10000;
             didUnfocus = false;
             DrawWindow();
             DrawChat();
+            GUI.depth = previousDepth;
         }
         else if (!didUnfocus)
         {
@@ -60,6 +87,14 @@ public sealed partial class MultiplayerUI : MonoBehaviour
 
     private void DrawWindow()
     {
+        if (openHubDiagnosticFrames > 0)
+        {
+            SrLogger.LogMessage(
+                $"Multiplayer UI draw attempt. State: {state}, hidden: {multiplayerUIHidden}, SR2E menu open: {MenuEUtil.isAnyMenuOpen}",
+                SrLogTarget.Both);
+            openHubDiagnosticFrames = 0;
+        }
+
         if (state == MenuState.Hidden) return;
 
         var windowRect = CalculateWindowRect();

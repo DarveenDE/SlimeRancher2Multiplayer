@@ -15,7 +15,10 @@ public sealed class LandPlotFeederHandler : BaseClientPacketHandler<LandPlotFeed
         handlingPacket = true;
         try
         {
-            LandPlotFeederSyncManager.ApplyState(packet.PlotId, packet.State, "client feeder state");
+            LandPlotFeederSyncManager.ApplyState(
+                packet.PlotId,
+                packet.State,
+                packet.IsRepairSnapshot ? "client repair feeder state" : "client feeder state");
         }
         finally { handlingPacket = false; }
     }

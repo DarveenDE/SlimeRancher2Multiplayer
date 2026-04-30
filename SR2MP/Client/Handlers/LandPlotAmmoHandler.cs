@@ -15,7 +15,10 @@ public sealed class LandPlotAmmoHandler : BaseClientPacketHandler<LandPlotAmmoPa
         handlingPacket = true;
         try
         {
-            LandPlotAmmoSyncManager.ApplyAmmoSet(packet.PlotId, packet.AmmoSet, "client land plot ammo");
+            LandPlotAmmoSyncManager.ApplyAmmoSet(
+                packet.PlotId,
+                packet.AmmoSet,
+                packet.IsRepairSnapshot ? "client repair land plot ammo" : "client land plot ammo");
         }
         finally { handlingPacket = false; }
     }

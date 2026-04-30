@@ -7,6 +7,8 @@ public sealed partial class MultiplayerUI
     private bool viewingSettings = false;
     private bool firstTime = true;
     private bool viewingHelp = false;
+    private readonly object pendingStatusUpdatesLock = new();
+    private readonly Queue<Action> pendingStatusUpdates = new();
 
     public MenuState state = MenuState.Hidden;
     private bool chatShown = false;
@@ -64,5 +66,81 @@ public sealed partial class MultiplayerUI
         }
 
         previousState = state;
+    }
+
+    private void EnqueueStatusUpdate(Action action)
+    {
+        lock (pendingStatusUpdatesLock)
+        {
+            pendingStatusUpdates.Enqueue(action);
+        }
+    }
+
+    private void ProcessPendingStatusUpdates()
+    {
+        while (true)
+        {
+            Action? action;
+            lock (pendingStatusUpdatesLock)
+            {
+                if (pendingStatusUpdates.Count == 0)
+                    return;
+
+                action = pendingStatusUpdates.Dequeue();
+            }
+
+            action?.Invoke();
+        }
+    }
+
+    private void HandleClientConnectionStarted(string address, int port)
+    {
+        EnqueueStatusUpdate(() =>
+        {
+            if (connectionPhase is ConnectionPhase.Idle or ConnectionPhase.ResolvingAddress or ConnectionPhase.Failed)
+                SetConnectionStatus(ConnectionPhase.Connecting, $"Connecting to {address}:{port}...");
+        });
+    }
+
+    private void HandleClientConnected(string playerId)
+    {
+        EnqueueStatusUpdate(() =>
+            SetConnectionStatus(ConnectionPhase.Connected, "Joined hosted world."));
+    }
+
+    private void HandleClientConnectionFailed(string message)
+    {
+        EnqueueStatusUpdate(() =>
+            SetConnectionStatus(ConnectionPhase.Failed, message));
+    }
+
+    private void HandleClientDisconnected()
+    {
+        EnqueueStatusUpdate(() =>
+        {
+            if (connectionPhase != ConnectionPhase.Failed)
+                SetConnectionStatus(ConnectionPhase.Idle, "Disconnected from world.");
+        });
+    }
+
+    private void HandleServerStarted()
+    {
+        EnqueueStatusUpdate(() =>
+            SetConnectionStatus(ConnectionPhase.Hosting, $"Hosting on port {Main.Server.Port}."));
+    }
+
+    private void HandleServerStartFailed(string message)
+    {
+        EnqueueStatusUpdate(() =>
+            SetConnectionStatus(ConnectionPhase.Failed, message));
+    }
+
+    private void HandleServerStopped()
+    {
+        EnqueueStatusUpdate(() =>
+        {
+            if (connectionPhase != ConnectionPhase.Failed)
+                SetConnectionStatus(ConnectionPhase.Idle, "Hosted world closed.");
+        });
     }
 }

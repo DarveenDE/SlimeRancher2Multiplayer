@@ -39,4 +39,17 @@ public sealed partial class MultiplayerUI
         Players,
         Settings,
     }
+
+    private enum ConnectionPhase : byte
+    {
+        Idle,
+        ResolvingAddress,
+        Connecting,
+        Synchronizing,
+        Connected,
+        StartingHost,
+        Hosting,
+        Stopping,
+        Failed,
+    }
 }

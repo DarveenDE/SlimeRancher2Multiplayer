@@ -1,3 +1,5 @@
+using SR2MP.Shared.Utils;
+
 namespace SR2MP.Components.UI;
 
 public sealed partial class MultiplayerUI
@@ -10,6 +12,10 @@ public sealed partial class MultiplayerUI
     private bool allowCheatsInput;
     private string uiStatus = string.Empty;
     private MultiplayerTab activeTab = MultiplayerTab.Join;
+    private ConnectionPhase connectionPhase = ConnectionPhase.Idle;
+    private bool confirmingJoin;
+    private ServerAddress pendingJoinAddress;
+    private readonly List<ServerAddress> recentServers = new();
 
     private void FirstTimeScreen()
     {
@@ -122,22 +128,29 @@ public sealed partial class MultiplayerUI
         {
             if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Close Host"))
             {
+                SetConnectionStatus(ConnectionPhase.Stopping, "Closing hosted world...");
                 Main.Server.Close();
-                uiStatus = "Hosted world closed.";
             }
         }
         else if (Main.Client.IsConnected)
         {
-            if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Disconnect"))
+            string label = Main.Client.IsConnectionPending ? "Cancel" : "Disconnect";
+            if (GUI.Button(CalculateButtonLayout(6, 2, 1), label))
             {
-                Main.Client.Disconnect();
-                uiStatus = "Disconnected from world.";
+                SetConnectionStatus(ConnectionPhase.Stopping,
+                    Main.Client.IsConnectionPending ? "Cancelling connection..." : "Disconnecting...");
+                Main.Client.Disconnect(Main.Client.IsConnectionPending
+                    ? "Connection cancelled."
+                    : "You disconnected from the world.");
             }
         }
         else
         {
             if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Settings"))
+            {
+                confirmingJoin = false;
                 activeTab = MultiplayerTab.Settings;
+            }
         }
     }
 
@@ -154,38 +167,95 @@ public sealed partial class MultiplayerUI
         if (GUI.Button(CalculateButtonLayout(6, 4, 0), GetTabText(MultiplayerTab.Join, "Join")))
             activeTab = MultiplayerTab.Join;
         if (GUI.Button(CalculateButtonLayout(6, 4, 1), GetTabText(MultiplayerTab.Host, "Host")))
+        {
+            confirmingJoin = false;
             activeTab = MultiplayerTab.Host;
+        }
         if (GUI.Button(CalculateButtonLayout(6, 4, 2), GetTabText(MultiplayerTab.Players, "Players")))
+        {
+            confirmingJoin = false;
             activeTab = MultiplayerTab.Players;
+        }
         if (GUI.Button(CalculateButtonLayout(6, 4, 3), GetTabText(MultiplayerTab.Settings, "Settings")))
+        {
+            confirmingJoin = false;
             activeTab = MultiplayerTab.Settings;
+        }
     }
 
     private void DrawJoinTab()
     {
+        if (confirmingJoin)
+        {
+            DrawJoinConfirmation();
+            return;
+        }
+
         DrawText("Join a world");
 
-        DrawText("IP", 2);
+        DrawText("Server", 2);
         ipInput = DrawTextInput(CalculateInputLayout(6, 2, 1), ipInput, 128, IpInputName);
 
         DrawText("Port", 2);
         portInput = DrawTextInput(CalculateInputLayout(6, 2, 1), portInput, 5, PortInputName);
 
-        bool validIp = !string.IsNullOrWhiteSpace(ipInput);
-        bool validPort = ushort.TryParse(portInput, out var port) && port > 0;
-        bool canConnect = validIp && validPort && !Main.Server.IsRunning() && !Main.Client.IsConnected;
+        bool validAddress = ServerAddressParser.TryParse(ipInput, portInput, out var serverAddress, out var addressError);
+        bool canConnect = validAddress && !Main.Server.IsRunning() && !Main.Client.IsConnected && !IsBusy();
 
-        if (!validIp)
-            DrawText("Enter an IP address or hostname.");
-        else if (!validPort)
-            DrawText("Invalid port: Must be a number from 1 to 65535.");
+        if (!validAddress)
+            DrawText(addressError);
         else if (Main.Server.IsRunning())
             DrawText("Close your hosted world before joining another one.");
         else if (Main.Client.IsConnected)
             DrawText("Disconnect before joining another world.");
+        else if (IsBusy())
+            DrawText("Please wait until the current multiplayer action finishes.");
+        else
+            DrawText($"Ready to join {serverAddress.Display}.");
 
-        if (DrawEnabledButton("Connect", canConnect))
-            Connect(ipInput, port);
+        if (DrawEnabledButton("Continue", canConnect))
+            BeginJoinConfirmation(serverAddress);
+
+        DrawRecentServers();
+    }
+
+    private void DrawJoinConfirmation()
+    {
+        DrawText("Join hosted world");
+        DrawText($"Server: {pendingJoinAddress.Display}");
+        DrawText("Use an empty client save. Joining resets this save to match the hosted world.");
+
+        bool canJoin = !Main.Server.IsRunning() && !Main.Client.IsConnected && !IsBusy();
+        if (DrawEnabledButton("Join", canJoin, 2, 0))
+        {
+            confirmingJoin = false;
+            Connect(pendingJoinAddress);
+        }
+
+        if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Back"))
+        {
+            confirmingJoin = false;
+        }
+    }
+
+    private void DrawRecentServers()
+    {
+        if (recentServers.Count == 0 || Main.Server.IsRunning() || Main.Client.IsConnected || IsBusy())
+            return;
+
+        DrawText("Recent servers");
+
+        int shownServers = Math.Min(recentServers.Count, 3);
+        for (int i = 0; i < shownServers; i++)
+        {
+            var recentServer = recentServers[i];
+            if (GUI.Button(CalculateButtonLayout(6), recentServer.Display))
+            {
+                ipInput = recentServer.Host;
+                portInput = recentServer.Port.ToString();
+                BeginJoinConfirmation(recentServer);
+            }
+        }
     }
 
     private void DrawHostTab()
@@ -196,7 +266,7 @@ public sealed partial class MultiplayerUI
         hostPortInput = DrawTextInput(CalculateInputLayout(6, 2, 1), hostPortInput, 5, HostPortInputName);
 
         bool validHostPort = ushort.TryParse(hostPortInput, out var hostPort) && hostPort > 0;
-        bool canHost = validHostPort && !Main.Server.IsRunning() && !Main.Client.IsConnected;
+        bool canHost = validHostPort && !Main.Server.IsRunning() && !Main.Client.IsConnected && !IsBusy();
 
         if (!validHostPort)
         {
@@ -210,6 +280,10 @@ public sealed partial class MultiplayerUI
         else if (Main.Client.IsConnected)
         {
             DrawText("Disconnect before hosting your own world.");
+        }
+        else if (IsBusy())
+        {
+            DrawText("Please wait until the current multiplayer action finishes.");
         }
 
         if (DrawEnabledButton("Host", canHost))
@@ -299,9 +373,27 @@ public sealed partial class MultiplayerUI
         if (Main.Server.IsRunning())
             return $"Hosting on port {Main.Server.Port} - {Main.Server.GetClientCount()} client(s) connected.";
 
+        if (Main.Client.IsConnectionPending)
+            return "Joining hosted world...";
+
         if (Main.Client.IsConnected)
             return "Connected to a hosted world.";
 
         return "Ready to host or join.";
+    }
+
+    private bool IsBusy()
+    {
+        return connectionPhase is ConnectionPhase.ResolvingAddress
+            or ConnectionPhase.Connecting
+            or ConnectionPhase.Synchronizing
+            or ConnectionPhase.StartingHost
+            or ConnectionPhase.Stopping;
+    }
+
+    private void SetConnectionStatus(ConnectionPhase phase, string message)
+    {
+        connectionPhase = phase;
+        uiStatus = message;
     }
 }

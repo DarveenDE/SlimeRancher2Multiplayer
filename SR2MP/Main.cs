@@ -24,11 +24,13 @@ public sealed class Main : SR2EExpansionV3
     public static readonly Assembly Core = typeof(Main).Assembly;
 
     static MelonPreferences_Category preferences;
+    private const int MultiplayerPauseMenuInsertIndex = 5;
     private CustomPauseMenuButton? multiplayerPauseMenuButton;
 
     public static string Username => preferences.GetEntry<string>("username").Value;
     public static string SavedConnectPort => preferences.GetEntry<string>("recent_port").Value;
     public static string SavedConnectIP => preferences.GetEntry<string>("recent_ip").Value;
+    public static string SavedRecentServers => preferences.GetEntry<string>("recent_servers").Value;
     public static string SavedHostPort => preferences.GetEntry<string>("host_port").Value;
     internal static bool SetupUI => preferences.GetEntry<bool>("internal_setup_ui").Value;
     public static bool PacketSizeLogging => preferences.GetEntry<bool>("packet_size_log").Value;
@@ -48,6 +50,7 @@ public sealed class Main : SR2EExpansionV3
 
         preferences.CreateEntry("recent_port", string.Empty, is_hidden: true);
         preferences.CreateEntry("recent_ip", "127.0.0.1", is_hidden: true);
+        preferences.CreateEntry("recent_servers", string.Empty, is_hidden: true);
         preferences.CreateEntry("host_port", "1919", is_hidden: true);
 
         preferences.CreateEntry("packet_size_log", false, display_name: "Packet Size Logging");
@@ -150,15 +153,16 @@ public sealed class Main : SR2EExpansionV3
     {
         actorManager.Initialize(gameContext);
         NetworkSceneManager.Initialize(gameContext);
+        NativeMultiplayerMenu.EnsureCreated();
 
         // Automatically inserts just by running the constructor.
         multiplayerPauseMenuButton ??= new CustomPauseMenuButton(
             SR2ELanguageManger.AddTranslation("Multiplayer", "b.sr2mp_multiplayer", "UI"),
-            5,
+            MultiplayerPauseMenuInsertIndex,
             () =>
             {
-                if (MultiplayerUI.Instance)
-                    MultiplayerUI.Instance.OpenHub();
+                SrLogger.LogMessage("Multiplayer pause menu button pressed.", SrLogTarget.Both);
+                NativeMultiplayerMenu.OpenFromPauseMenu();
             });
     }
 
