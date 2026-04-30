@@ -83,12 +83,14 @@ public static class WorldStateRepairManager
         TrySend("switches", () => SendSwitchSnapshots(gameModel, stats));
         TrySend("access doors", () => SendAccessDoorSnapshots(gameModel, stats));
         TrySend("map unlocks", () => SendMapUnlockSnapshots(stats));
+        TrySend("comm station", () => SendCommStationSnapshots(stats));
+        TrySend("resource nodes", () => SendResourceNodeSnapshots(stats));
         TrySend("gordos", () => SendGordoSnapshots(gameModel, stats));
         TrySend("puzzle slots", () => SendPuzzleSlotSnapshots(gameModel, stats));
         TrySend("plort depositors", () => SendPlortDepositorSnapshots(gameModel, stats));
 
         SrLogger.LogDebug(
-            $"Repair snapshot sent: refinery={stats.RefineryItems}, plotTypes={stats.LandPlotTypes}, plotUpgrades={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, gardens={stats.GardenStates}, gardenGrowth={stats.GardenGrowthStates}, gardenProduce={stats.GardenProduceStates}, gardenAttach={stats.GardenResourceAttachStates}, feeders={stats.FeederStates}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, gordos={stats.Gordos}, slots={stats.PuzzleSlots}, depositors={stats.PlortDepositors}.",
+            $"Repair snapshot sent: refinery={stats.RefineryItems}, plotTypes={stats.LandPlotTypes}, plotUpgrades={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, gardens={stats.GardenStates}, gardenGrowth={stats.GardenGrowthStates}, gardenProduce={stats.GardenProduceStates}, gardenAttach={stats.GardenResourceAttachStates}, feeders={stats.FeederStates}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, comm={stats.CommStationEntries}, resourceNodes={stats.ResourceNodes}, gordos={stats.Gordos}, slots={stats.PuzzleSlots}, depositors={stats.PlortDepositors}.",
             SrLogTarget.Main);
     }
 
@@ -243,6 +245,34 @@ public static class WorldStateRepairManager
         stats.MapUnlocks = nodeIds.Count;
     }
 
+    private static void SendCommStationSnapshots(RepairSnapshotStats stats)
+    {
+        var entries = CommStationSyncManager.CreateSnapshot();
+        if (entries.Count == 0)
+            return;
+
+        Main.Server.SendToAll(new CommStationPlayedPacket
+        {
+            Entries = entries,
+            IsRepairSnapshot = true,
+        });
+        stats.CommStationEntries = entries.Count;
+    }
+
+    private static void SendResourceNodeSnapshots(RepairSnapshotStats stats)
+    {
+        var nodes = ResourceNodeSyncManager.CreateSnapshot();
+        if (nodes.Count == 0)
+            return;
+
+        Main.Server.SendToAll(new ResourceNodeStatePacket
+        {
+            Nodes = nodes,
+            IsRepairSnapshot = true,
+        });
+        stats.ResourceNodes = nodes.Count;
+    }
+
     private static void SendGordoSnapshots(GameModel gameModel, RepairSnapshotStats stats)
     {
         foreach (var gordoEntry in gameModel.gordos)
@@ -349,6 +379,8 @@ public static class WorldStateRepairManager
         public int Switches { get; set; }
         public int AccessDoors { get; set; }
         public int MapUnlocks { get; set; }
+        public int CommStationEntries { get; set; }
+        public int ResourceNodes { get; set; }
         public int Gordos { get; set; }
         public int PuzzleSlots { get; set; }
         public int PlortDepositors { get; set; }

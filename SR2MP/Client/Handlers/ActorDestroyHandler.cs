@@ -1,6 +1,7 @@
 using SR2MP.Packets.Actor;
 using SR2MP.Packets.Utils;
 using SR2MP.Shared.Managers;
+using Il2CppMonomiPark.SlimeRancher.DataModel;
 
 namespace SR2MP.Client.Handlers;
 
@@ -15,6 +16,14 @@ public sealed class ActorDestroyHandler : BaseClientPacketHandler<ActorDestroyPa
         if (!actorManager.Actors.TryGetValue(packet.ActorId.Value, out var actor))
         {
             SrLogger.LogPacketSize($"Actor {packet.ActorId.Value} doesn't exist (already destroyed?)", SrLogTarget.Both);
+            return;
+        }
+
+        var gadget = actor.TryCast<GadgetModel>();
+        if (gadget != null)
+        {
+            RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
+            actorManager.Actors.Remove(packet.ActorId.Value);
             return;
         }
 

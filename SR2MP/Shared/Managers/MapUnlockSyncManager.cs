@@ -60,6 +60,7 @@ public static class MapUnlockSyncManager
         }
 
         NotifyEventParticipants();
+        RefreshVisibleFogElements();
         QueueVisualRefresh();
 
         if (IsRepairSource(source))
@@ -109,6 +110,7 @@ public static class MapUnlockSyncManager
 
         NotifyEventParticipants();
         RefreshVisibleFogElement(nodeId, animate);
+        RefreshVisibleFogElements();
         QueueVisualRefresh();
 
         if (IsRepairSource(source) && !wasUnlocked)

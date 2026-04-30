@@ -59,6 +59,8 @@ public enum PacketType : byte
     LandPlotAmmoUpdate = 54,      // Both Ways                                                                          Silo and plort collector storage counts
     LandPlotFeederState = 55,     // Both Ways                                                                          Auto-feeder speed and timer state
     GardenGrowthState = 56,       // Both Ways                                                                          Garden spawn timing and produce harvest state
+    CommStationPlayed = 57,       // Both Ways                                                                          Comm station conversations marked as played
+    ResourceNodeState = 58,       // Both Ways                                                                          Resource node/ore spawn and harvest state
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

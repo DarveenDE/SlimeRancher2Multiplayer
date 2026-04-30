@@ -36,24 +36,25 @@ Legend:
 | Initial join sync | ✅ | Reliable snapshot barrier added so live packets do not interleave with the initial load. |
 | Actors/items | 🟡 | Spawn/update/destroy sync works better; actor-id allocation and scene id handling were hardened. More edge cases are expected. |
 | Slimes | 🟡 | Base sync works through actor sync; behavior/ownership edge cases can still desync. |
-| Gardens | 🟡 | Initial crop/tree state and live plant/remove are synced in this fork. Attached fruit/resource state remains a follow-up. |
+| Gardens | 🟡 | Initial crop/tree state, live plant/remove, growth/harvest state, and attached resource state are synced. Needs broader playtesting. |
 | Silos | 🟡 | Initial and live ammo/storage slot sync added. Needs broader playtesting. |
 | Plort collectors | 🟡 | Initial and live storage count sync added. Needs broader playtesting. |
 | Auto-feeders | 🟡 | Storage state and feeder speed/state sync added. Needs broader playtesting. |
 | Landplot upgrades | ✅ | Existing upgrade sync retained. |
-| Refinery item counts | ⏳ | Initial/live count sync added, but current playtest still reports empty refinery snapshots for the joining client. |
+| Refinery item counts | ⏳ | Initial/live count sync and repair snapshots are present, but refinery/fabricator counts still need focused two-player validation. |
 | Plort puzzle statues/depositors | 🟡 | Initial and live slot/depositor state sync added. Needs more door/puzzle coverage testing. |
 | Access doors | 🟡 | Initial and live door state sync improved. |
 | Gordos | ✅ | Seen/eaten state sync improved so hidden map markers should stay hidden until discovered. |
-| Map reveal | ✅ | Fog/map-node sync retained. |
+| Map reveal | ✅ | Fog/map-node sync retained and remote snapshots now refresh visible fog immediately. |
 | Remote player map markers | 🟡 | Remote player marker added for the full map and compass; full-map live refresh is still less reliable than the compass marker. |
 | Slimepedia | ✅ | Initial sync retained. |
 | Upgrades | ✅ | Initial sync retained. |
 | Money | ✅ | Initial sync retained. |
 | Time/weather | ✅ | Initial weather sync retained; weather packet participates in the initial sync barrier. |
 | Market prices | ✅ | Includes price-change indicators. |
-| Decorations/furniture/gadgets | 🟡 | Initial placed gadget visibility was improved, but full gadget behavior/state sync is not complete. |
-| Resource nodes | ❌ | Not implemented. |
+| Decorations/furniture/gadgets | 🟡 | Initial/live placement and demolish sync are present. Full gadget behavior/state sync is not complete. |
+| Comm station / terminal messages | 🟡 | Conversation played/read state now syncs live, on join, and through repair snapshots. |
+| Resource nodes / ores | 🟡 | Host-authoritative resource node state sync added for initial join, live spawn/harvest/despawn, and repair snapshots. Needs two-player validation. |
 | Player inventory | ❌ | Not implemented. |
 
 ## Notable Changes In This Fork
@@ -63,6 +64,10 @@ Legend:
 - Hardened reliable ordered packet handling, packet chunk validation, and server-side endpoint checks.
 - Added remote player map and compass markers.
 - Added or improved sync for gardens, landplot ammo/storage, auto-feeders, refinery item counts, puzzle statues/depositors, access doors, and Gordo seen state.
+- Added live placement and demolish sync for player-placed gadgets/build-mode objects.
+- Added comm station conversation played/read sync.
+- Added host-authoritative resource node/ore state sync.
+- Added immediate map-fog visual refresh after remote map snapshots are applied.
 - Added local PowerShell helper scripts for syncing game references, building, and installing a test DLL.
 - Added development notes in `docs/` for current bugs and networking follow-ups.
 

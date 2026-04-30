@@ -78,8 +78,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         yield return null;
 
         SendUpgradesPacket(clientEp, pendingInitialPackets);
+        SendResourceNodesPacket(clientEp, pendingInitialPackets);
         SendRefineryItemsPacket(clientEp, pendingInitialPackets);
         SendPediaPacket(clientEp, pendingInitialPackets);
+        SendCommStationPacket(clientEp, pendingInitialPackets);
         SendMapPacket(clientEp, pendingInitialPackets);
         SendAccessDoorsPacket(clientEp, pendingInitialPackets);
         SendPricesPacket(clientEp, pendingInitialPackets);
@@ -114,6 +116,30 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         };
 
         TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(packet, client));
+    }
+
+    private static void SendResourceNodesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
+    {
+        var nodes = ResourceNodeSyncManager.CreateSnapshot();
+        if (nodes.Count == 0)
+            return;
+
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(new ResourceNodeStatePacket
+        {
+            Nodes = nodes,
+        }, client));
+    }
+
+    private static void SendCommStationPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
+    {
+        var entries = CommStationSyncManager.CreateSnapshot();
+        if (entries.Count == 0)
+            return;
+
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(new CommStationPlayedPacket
+        {
+            Entries = entries,
+        }, client));
     }
 
     private static System.Collections.IEnumerator SendWeatherAndCompleteInitialSync(IPEndPoint client, List<ushort> pendingInitialPackets)
