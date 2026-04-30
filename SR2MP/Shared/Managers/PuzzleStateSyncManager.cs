@@ -38,7 +38,11 @@ public static class PuzzleStateSyncManager
 
     public static bool ApplySlotState(string id, bool filled, string source)
     {
+        if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
+            return false;
+
         var gameModel = SceneContext.Instance.GameModel;
+        var isRepairSnapshot = IsRepairSource(source);
 
         if (!gameModel.slots.TryGetValue(id, out var model))
         {
@@ -47,10 +51,13 @@ public static class PuzzleStateSyncManager
                 filled = filled,
                 gameObj = null,
             });
+            LogSlotRepairCorrection(isRepairSnapshot, id, false, false, true, filled);
             return true;
         }
 
+        var beforeFilled = model.filled;
         model.filled = filled;
+        LogSlotRepairCorrection(isRepairSnapshot, id, true, beforeFilled, true, filled);
 
         if (!model.gameObj)
             return true;
@@ -77,7 +84,11 @@ public static class PuzzleStateSyncManager
 
     public static bool ApplyDepositorState(string id, int amountDeposited, string source)
     {
+        if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
+            return false;
+
         var gameModel = SceneContext.Instance.GameModel;
+        var isRepairSnapshot = IsRepairSource(source);
 
         if (!gameModel.depositors.TryGetValue(id, out var model))
         {
@@ -86,10 +97,13 @@ public static class PuzzleStateSyncManager
                 AmountDeposited = amountDeposited,
                 _gameObject = null,
             });
+            LogDepositorRepairCorrection(isRepairSnapshot, id, false, 0, true, amountDeposited);
             return true;
         }
 
+        var beforeAmount = model.AmountDeposited;
         model.AmountDeposited = amountDeposited;
+        LogDepositorRepairCorrection(isRepairSnapshot, id, true, beforeAmount, true, amountDeposited);
 
         if (!model._gameObject)
             return true;
@@ -113,4 +127,74 @@ public static class PuzzleStateSyncManager
 
         return true;
     }
+
+    private static void LogSlotRepairCorrection(
+        bool isRepairSnapshot,
+        string id,
+        bool beforeExists,
+        bool beforeFilled,
+        bool targetExists,
+        bool targetFilled)
+    {
+        if (!isRepairSnapshot)
+            return;
+
+        if (beforeExists == targetExists && beforeFilled == targetFilled)
+            return;
+
+        var beforeHash = HashBoolState(beforeExists, beforeFilled);
+        var targetHash = HashBoolState(targetExists, targetFilled);
+        SrLogger.LogMessage(
+            $"Repair corrected puzzle slot '{id}' ({FormatHash(beforeHash)} -> {FormatHash(targetHash)}).",
+            SrLogTarget.Main);
+    }
+
+    private static void LogDepositorRepairCorrection(
+        bool isRepairSnapshot,
+        string id,
+        bool beforeExists,
+        int beforeAmount,
+        bool targetExists,
+        int targetAmount)
+    {
+        if (!isRepairSnapshot)
+            return;
+
+        if (beforeExists == targetExists && beforeAmount == targetAmount)
+            return;
+
+        var beforeHash = HashAmountState(beforeExists, beforeAmount);
+        var targetHash = HashAmountState(targetExists, targetAmount);
+        SrLogger.LogMessage(
+            $"Repair corrected plort depositor '{id}' ({FormatHash(beforeHash)} -> {FormatHash(targetHash)}).",
+            SrLogTarget.Main);
+    }
+
+    private static bool IsRepairSource(string source)
+        => source.Contains("repair", StringComparison.OrdinalIgnoreCase);
+
+    private static int HashBoolState(bool exists, bool value)
+    {
+        var hash = 0;
+        hash = AddHash(hash, exists ? 1 : 0);
+        return AddHash(hash, value ? 1 : 0);
+    }
+
+    private static int HashAmountState(bool exists, int value)
+    {
+        var hash = 0;
+        hash = AddHash(hash, exists ? 1 : 0);
+        return AddHash(hash, value);
+    }
+
+    private static int AddHash(int hash, int value)
+    {
+        unchecked
+        {
+            return (hash * 397) ^ value;
+        }
+    }
+
+    private static string FormatHash(int hash)
+        => $"0x{hash:X8}";
 }

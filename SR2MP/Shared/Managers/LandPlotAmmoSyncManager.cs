@@ -99,7 +99,7 @@ public static class LandPlotAmmoSyncManager
                 continue;
             }
 
-            if (!ApplySlots(ammoModel, ammoSet, plotId))
+            if (!ApplySlots(ammoModel, ammoSet, plotId, "initial land plot ammo"))
                 QueueRemoteAmmoSet(plotId, ammoSet, "initial land plot ammo");
         }
     }
@@ -133,7 +133,7 @@ public static class LandPlotAmmoSyncManager
             return false;
         }
 
-        return ApplySlots(ammoModel, ammoSet, plotId);
+        return ApplySlots(ammoModel, ammoSet, plotId, source);
     }
 
     private static InitialLandPlotsPacket.AmmoSetData CreateAmmoSet(string key, AmmoModel ammoModel)
@@ -166,12 +166,20 @@ public static class LandPlotAmmoSyncManager
         };
     }
 
-    private static bool ApplySlots(AmmoModel ammoModel, InitialLandPlotsPacket.AmmoSetData ammoSet, string plotId)
+    private static bool ApplySlots(
+        AmmoModel ammoModel,
+        InitialLandPlotsPacket.AmmoSetData ammoSet,
+        string plotId,
+        string source)
     {
         var slots = ammoModel.Slots;
-        if (slots == null)
+        if (slots == null || ammoSet.Slots == null)
             return false;
 
+        var isRepairSnapshot = IsRepairSource(source);
+        var beforeHash = 0;
+        var targetHash = 0;
+        var changedSlots = 0;
         var count = Math.Min(slots.Length, ammoSet.Slots.Count);
         var appliedAllSlots = true;
         for (var i = 0; i < count; i++)
@@ -181,6 +189,32 @@ public static class LandPlotAmmoSyncManager
                 continue;
 
             var sourceSlot = ammoSet.Slots[i];
+            if (isRepairSnapshot)
+            {
+                var beforeHasIdentifiable = targetSlot.Id != null && targetSlot.Id && targetSlot.Count > 0;
+                var beforeIdentifiable = beforeHasIdentifiable && TryGetPersistentId(targetSlot.Id, out var slotIdent)
+                    ? slotIdent
+                    : -1;
+                var beforeCount = beforeHasIdentifiable ? Math.Max(0, targetSlot.Count) : 0;
+                var beforeRadiant = beforeHasIdentifiable && targetSlot.Radiant;
+
+                var targetHasIdentifiable = sourceSlot.HasIdentifiable && sourceSlot.Count > 0;
+                var targetIdentifiable = targetHasIdentifiable ? sourceSlot.IdentifiableType : -1;
+                var targetCount = targetHasIdentifiable ? Math.Max(0, sourceSlot.Count) : 0;
+                var targetRadiant = targetHasIdentifiable && sourceSlot.Radiant;
+
+                beforeHash = AddSlotHash(beforeHash, beforeHasIdentifiable, beforeIdentifiable, beforeCount, beforeRadiant);
+                targetHash = AddSlotHash(targetHash, targetHasIdentifiable, targetIdentifiable, targetCount, targetRadiant);
+
+                if (beforeHasIdentifiable != targetHasIdentifiable
+                    || beforeIdentifiable != targetIdentifiable
+                    || beforeCount != targetCount
+                    || beforeRadiant != targetRadiant)
+                {
+                    changedSlots++;
+                }
+            }
+
             if (!sourceSlot.HasIdentifiable || sourceSlot.Count <= 0)
             {
                 targetSlot.Clear();
@@ -202,8 +236,56 @@ public static class LandPlotAmmoSyncManager
         }
 
         ammoModel.Push(slots);
+        if (isRepairSnapshot && changedSlots > 0)
+        {
+            var result = appliedAllSlots ? "corrected" : "partially corrected";
+            SrLogger.LogMessage(
+                $"Repair {result} ammo set '{ammoSet.Key}' on plot '{plotId}' ({changedSlots} slot(s), {FormatHash(beforeHash)} -> {FormatHash(targetHash)}).",
+                SrLogTarget.Main);
+        }
+
         return appliedAllSlots;
     }
+
+    private static bool TryGetPersistentId(IdentifiableType? ident, out int persistentId)
+    {
+        persistentId = -1;
+        if (ident == null || !ident)
+            return false;
+
+        try
+        {
+            persistentId = NetworkActorManager.GetPersistentID(ident);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogWarning($"Could not resolve stored item type while hashing ammo repair state: {ex.Message}", SrLogTarget.Main);
+            return false;
+        }
+    }
+
+    private static bool IsRepairSource(string source)
+        => source.Contains("repair", StringComparison.OrdinalIgnoreCase);
+
+    private static int AddSlotHash(int hash, bool hasIdentifiable, int identifiableType, int count, bool radiant)
+    {
+        hash = AddHash(hash, hasIdentifiable ? 1 : 0);
+        hash = AddHash(hash, identifiableType);
+        hash = AddHash(hash, count);
+        return AddHash(hash, radiant ? 1 : 0);
+    }
+
+    private static int AddHash(int hash, int value)
+    {
+        unchecked
+        {
+            return (hash * 397) ^ value;
+        }
+    }
+
+    private static string FormatHash(int hash)
+        => $"0x{hash:X8}";
 
     private static System.Collections.IEnumerator SendQueuedLocalAmmoSets()
     {

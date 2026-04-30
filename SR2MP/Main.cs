@@ -62,6 +62,8 @@ public sealed class Main : SR2EExpansionV3
 
         Client = new Client.Client();
         Server = new Server.Server();
+        Server.OnServerStarted += WorldStateRepairManager.Start;
+        Server.OnServerStopped += WorldStateRepairManager.Stop;
     }
 
     public override void OnInitializeMelon()

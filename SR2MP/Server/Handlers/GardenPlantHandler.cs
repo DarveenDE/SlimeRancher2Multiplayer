@@ -22,6 +22,7 @@ public sealed class GardenPlantHandler : BasePacketHandler<GardenPlantPacket>
         }
         finally { handlingPacket = false; }
 
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, clientEp);
     }
 }

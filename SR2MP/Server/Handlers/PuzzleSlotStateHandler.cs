@@ -15,6 +15,7 @@ public sealed class PuzzleSlotStateHandler : BasePacketHandler<PuzzleSlotStatePa
     protected override void Handle(PuzzleSlotStatePacket packet, IPEndPoint senderEndPoint)
     {
         PuzzleStateSyncManager.ApplySlotState(packet.ID, packet.Filled, "server puzzle slot");
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
 }

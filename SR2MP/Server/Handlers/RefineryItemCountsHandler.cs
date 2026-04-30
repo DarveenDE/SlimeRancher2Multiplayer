@@ -24,6 +24,7 @@ public sealed class RefineryItemCountsHandler : BasePacketHandler<RefineryItemCo
             handlingPacket = false;
         }
 
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
 }

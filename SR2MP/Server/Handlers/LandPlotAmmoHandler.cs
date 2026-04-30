@@ -22,6 +22,7 @@ public sealed class LandPlotAmmoHandler : BasePacketHandler<LandPlotAmmoPacket>
         }
         finally { handlingPacket = false; }
 
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
 }

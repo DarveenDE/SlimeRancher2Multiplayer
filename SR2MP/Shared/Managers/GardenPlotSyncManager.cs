@@ -126,11 +126,18 @@ public static class GardenPlotSyncManager
             return false;
         }
 
+        var isRepairSnapshot = IsRepairSource(source);
+        var beforeHasCrop = false;
+        var beforeCrop = -1;
+        if (isRepairSnapshot)
+            beforeHasCrop = TryGetCurrentCropType(model, out beforeCrop);
+
         if (!hasCrop)
         {
             model.resourceGrowerDefinition = null;
             ClearAttachedCrop(model);
             model.NotifyParticipants();
+            LogRepairCorrection(isRepairSnapshot, plotId, beforeHasCrop, beforeCrop, hasCrop, cropType);
             return true;
         }
 
@@ -143,6 +150,9 @@ public static class GardenPlotSyncManager
 
         var planted = PlantCrop(model, actor, resourceGrowerDefinition, plotId, source);
         shouldRetry = !planted;
+        if (planted)
+            LogRepairCorrection(isRepairSnapshot, plotId, beforeHasCrop, beforeCrop, hasCrop, cropType);
+
         return planted;
     }
 
@@ -259,6 +269,52 @@ public static class GardenPlotSyncManager
         model.NotifyParticipants();
         return true;
     }
+
+    private static void LogRepairCorrection(
+        bool isRepairSnapshot,
+        string plotId,
+        bool beforeHasCrop,
+        int beforeCrop,
+        bool targetHasCrop,
+        int targetCrop)
+    {
+        if (!isRepairSnapshot)
+            return;
+
+        var normalizedBeforeCrop = beforeHasCrop ? beforeCrop : -1;
+        var normalizedTargetCrop = targetHasCrop ? targetCrop : -1;
+        if (beforeHasCrop == targetHasCrop && normalizedBeforeCrop == normalizedTargetCrop)
+            return;
+
+        var beforeHash = AddGardenHash(0, beforeHasCrop, normalizedBeforeCrop);
+        var targetHash = AddGardenHash(0, targetHasCrop, normalizedTargetCrop);
+        var beforeText = beforeHasCrop ? normalizedBeforeCrop.ToString() : "empty";
+        var targetText = targetHasCrop ? normalizedTargetCrop.ToString() : "empty";
+
+        SrLogger.LogMessage(
+            $"Repair corrected garden crop on plot '{plotId}' ({beforeText} -> {targetText}, {FormatHash(beforeHash)} -> {FormatHash(targetHash)}).",
+            SrLogTarget.Main);
+    }
+
+    private static bool IsRepairSource(string source)
+        => source.Contains("repair", StringComparison.OrdinalIgnoreCase);
+
+    private static int AddGardenHash(int hash, bool hasCrop, int cropType)
+    {
+        hash = AddHash(hash, hasCrop ? 1 : 0);
+        return AddHash(hash, cropType);
+    }
+
+    private static int AddHash(int hash, int value)
+    {
+        unchecked
+        {
+            return (hash * 397) ^ value;
+        }
+    }
+
+    private static string FormatHash(int hash)
+        => $"0x{hash:X8}";
 
     private static void QueueRemoteState(string plotId, bool hasCrop, int cropType, string source)
     {

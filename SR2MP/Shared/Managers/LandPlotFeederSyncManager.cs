@@ -69,6 +69,13 @@ public static class LandPlotFeederSyncManager
             return false;
         }
 
+        var isRepairSnapshot = IsRepairSource(source);
+        var beforeHash = isRepairSnapshot ? HashState(model) : 0;
+        var targetHash = isRepairSnapshot ? HashState(state) : 0;
+        var changed = model.feederCycleSpeed != state.Speed
+                      || model.nextFeedingTime != state.NextFeedingTime
+                      || model.remainingFeedOperations != state.RemainingFeedOperations;
+
         model.feederCycleSpeed = state.Speed;
         model.nextFeedingTime = state.NextFeedingTime;
         model.remainingFeedOperations = state.RemainingFeedOperations;
@@ -80,8 +87,45 @@ public static class LandPlotFeederSyncManager
                 feeder.SetFeederSpeed(state.Speed);
         }
 
+        if (isRepairSnapshot && changed)
+        {
+            SrLogger.LogMessage(
+                $"Repair corrected feeder state on plot '{plotId}' ({FormatHash(beforeHash)} -> {FormatHash(targetHash)}).",
+                SrLogTarget.Main);
+        }
+
         return true;
     }
+
+    private static bool IsRepairSource(string source)
+        => source.Contains("repair", StringComparison.OrdinalIgnoreCase);
+
+    private static int HashState(LandPlotModel model)
+    {
+        var hash = 0;
+        hash = AddHash(hash, (int)model.feederCycleSpeed);
+        hash = AddHash(hash, model.nextFeedingTime.GetHashCode());
+        return AddHash(hash, model.remainingFeedOperations);
+    }
+
+    private static int HashState(InitialLandPlotsPacket.FeederStateData state)
+    {
+        var hash = 0;
+        hash = AddHash(hash, (int)state.Speed);
+        hash = AddHash(hash, state.NextFeedingTime.GetHashCode());
+        return AddHash(hash, state.RemainingFeedOperations);
+    }
+
+    private static int AddHash(int hash, int value)
+    {
+        unchecked
+        {
+            return (hash * 397) ^ value;
+        }
+    }
+
+    private static string FormatHash(int hash)
+        => $"0x{hash:X8}";
 
     private static void QueueRemoteState(string plotId, InitialLandPlotsPacket.FeederStateData state, string source)
     {

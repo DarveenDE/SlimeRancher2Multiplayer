@@ -22,6 +22,7 @@ public sealed class LandPlotFeederHandler : BasePacketHandler<LandPlotFeederPack
         }
         finally { handlingPacket = false; }
 
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
 }

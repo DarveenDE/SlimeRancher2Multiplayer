@@ -15,6 +15,7 @@ public sealed class PlortDepositorStateHandler : BasePacketHandler<PlortDeposito
     protected override void Handle(PlortDepositorStatePacket packet, IPEndPoint senderEndPoint)
     {
         PuzzleStateSyncManager.ApplyDepositorState(packet.ID, packet.AmountDeposited, "server plort depositor");
+        packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
 }

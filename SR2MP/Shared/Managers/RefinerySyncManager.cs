@@ -8,7 +8,7 @@ public static class RefinerySyncManager
     private static readonly Dictionary<int, int> PendingCounts = new();
     private static bool pendingApplyRunning;
 
-    public static Dictionary<int, int> CreateSnapshot(bool includeZeroCounts)
+    public static Dictionary<int, int> CreateSnapshot(bool includeZeroCounts, bool logSummary = true)
     {
         var result = new Dictionary<int, int>();
 
@@ -46,8 +46,12 @@ public static class RefinerySyncManager
                 result[NetworkActorManager.GetPersistentID(ident)] = count;
         }
 
-        var nonZeroCount = result.Count(item => item.Value > 0);
-        SrLogger.LogMessage($"Created refinery snapshot with {result.Count} entries ({nonZeroCount} non-zero, {modelItemCounts} from model counts).", SrLogTarget.Main);
+        if (logSummary)
+        {
+            var nonZeroCount = result.Count(item => item.Value > 0);
+            SrLogger.LogMessage($"Created refinery snapshot with {result.Count} entries ({nonZeroCount} non-zero, {modelItemCounts} from model counts).", SrLogTarget.Main);
+        }
+
         return result;
     }
 
@@ -84,6 +88,10 @@ public static class RefinerySyncManager
         if (!TryGetGadgetsModel(out var model))
             return false;
 
+        var isRepairSnapshot = IsRepairSource(source);
+        var beforeHash = 0;
+        var targetHash = 0;
+        var changedItems = 0;
         var applied = 0;
         foreach (var item in items)
         {
@@ -93,7 +101,17 @@ public static class RefinerySyncManager
                 continue;
             }
 
-            model.SetCount(ident, Math.Max(0, item.Value));
+            var targetCount = Math.Max(0, item.Value);
+            if (isRepairSnapshot)
+            {
+                var beforeCount = GetModelCount(model, ident);
+                beforeHash = AddHash(AddHash(beforeHash, item.Key), beforeCount);
+                targetHash = AddHash(AddHash(targetHash, item.Key), targetCount);
+                if (beforeCount != targetCount)
+                    changedItems++;
+            }
+
+            model.SetCount(ident, targetCount);
             applied++;
         }
 
@@ -107,6 +125,13 @@ public static class RefinerySyncManager
             {
                 SrLogger.LogWarning($"Could not notify refinery participants after applying {source}: {ex.Message}", SrLogTarget.Main);
             }
+        }
+
+        if (isRepairSnapshot && changedItems > 0)
+        {
+            SrLogger.LogMessage(
+                $"Repair corrected refinery counts ({changedItems} item(s), {FormatHash(beforeHash)} -> {FormatHash(targetHash)}).",
+                SrLogTarget.Main);
         }
 
         SrLogger.LogMessage($"Applied {applied}/{items.Count} refinery counts from {source}.", SrLogTarget.Main);
@@ -174,6 +199,31 @@ public static class RefinerySyncManager
             yield return ident;
         }
     }
+
+    private static int GetModelCount(GadgetsModel model, IdentifiableType ident)
+    {
+        foreach (var itemCount in model._itemCounts)
+        {
+            if (itemCount.key == ident)
+                return Math.Max(0, itemCount.value);
+        }
+
+        return 0;
+    }
+
+    private static bool IsRepairSource(string source)
+        => source.Contains("repair", StringComparison.OrdinalIgnoreCase);
+
+    private static int AddHash(int hash, int value)
+    {
+        unchecked
+        {
+            return (hash * 397) ^ value;
+        }
+    }
+
+    private static string FormatHash(int hash)
+        => $"0x{hash:X8}";
 
     private static void QueuePendingCounts(Dictionary<int, int> items, string source)
     {

@@ -32,9 +32,9 @@ Last updated: 2026-04-30
 ## Multiplayer Stability
 
 - [x] Add retry queues for late-applied silo, plort collector, garden, and feeder states.
-- [ ] Add host-authoritative periodic repair snapshots for refinery counts, land plot ammo, garden crop state, feeder state, and puzzle/plort depositor counts.
-- [ ] Add lightweight desync diagnostics that log changed state hashes before/after repair snapshots.
-- [ ] Prefer host state as authoritative for world storage counts while still accepting client interaction events.
+- [x] Add host-authoritative periodic repair snapshots for refinery counts, land plot ammo, garden crop state, feeder state, and puzzle/plort depositor counts.
+- [x] Add lightweight desync diagnostics that log changed state hashes before/after repair snapshots.
+- [x] Prefer host state as authoritative for world storage counts while still accepting client interaction events.
 - [ ] Test known desync areas with two players: silos, refinery/fabricator counts, gardens, auto-feeders, plort collectors, and plort depositors.
 
 ## Manual QA
