@@ -5,6 +5,16 @@ public sealed partial class MultiplayerUI
     private Rect previousLayoutRect;
     private Rect previousLayoutChatRect;
     private int previousLayoutHorizontalIndex;
+    private float layoutOriginX = 6f;
+    private float layoutMaxWidth = WindowWidth - (HorizontalSpacing * 2);
+
+    private void ResetWindowLayout(Rect windowRect)
+    {
+        layoutOriginX = windowRect.x;
+        layoutMaxWidth = windowRect.width - (HorizontalSpacing * 2);
+        previousLayoutRect = new Rect(windowRect.x, windowRect.y + WindowHeaderHeight, windowRect.width, 0);
+        previousLayoutHorizontalIndex = 0;
+    }
 
     private void DrawText(string text, int horizontalShare = 1, int horizontalIndex = 0)
     {
@@ -13,13 +23,12 @@ public sealed partial class MultiplayerUI
 
     private Rect CalculateTextLayout(float originalX, string text, int horizontalShare = 1, int horizontalIndex = 0)
     {
-        const float maxWidth = WindowWidth - (HorizontalSpacing * 2);
         var style = GUI.skin.label;
-        var height = style.CalcHeight(new GUIContent(text), maxWidth / horizontalShare);
+        var height = style.CalcHeight(new GUIContent(text), layoutMaxWidth / horizontalShare);
 
-        float x = originalX + HorizontalSpacing;
+        float x = layoutOriginX + HorizontalSpacing;
         float y = previousLayoutRect.y;
-        float w = maxWidth / horizontalShare;
+        float w = layoutMaxWidth / horizontalShare;
         float h = height;
 
         x += horizontalIndex * w;
@@ -37,11 +46,9 @@ public sealed partial class MultiplayerUI
 
     private Rect CalculateInputLayout(float originalX, int horizontalShare = 1, int horizontalIndex = 0)
     {
-        const float maxWidth = WindowWidth - (HorizontalSpacing * 2);
-
-        float x = originalX + HorizontalSpacing;
+        float x = layoutOriginX + HorizontalSpacing;
         float y = previousLayoutRect.y;
-        float w = maxWidth / horizontalShare;
+        float w = layoutMaxWidth / horizontalShare;
         const float h = InputHeight;
 
         x += horizontalIndex * w;
@@ -59,11 +66,9 @@ public sealed partial class MultiplayerUI
 
     private Rect CalculateButtonLayout(float originalX, int horizontalShare = 1, int horizontalIndex = 0)
     {
-        const float maxWidth = WindowWidth - (HorizontalSpacing * 2);
-
-        float x = originalX + HorizontalSpacing;
+        float x = layoutOriginX + HorizontalSpacing;
         float y = previousLayoutRect.y;
-        float w = maxWidth / horizontalShare;
+        float w = layoutMaxWidth / horizontalShare;
         const float h = ButtonHeight;
 
         x += horizontalIndex * w;

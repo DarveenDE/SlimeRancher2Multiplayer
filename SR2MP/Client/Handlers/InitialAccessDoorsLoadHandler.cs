@@ -24,7 +24,15 @@ public sealed class DoorsLoadHandler : BaseClientPacketHandler<InitialAccessDoor
 
                 if (doorModel.gameObj)
                 {
-                    doorModel.gameObj.GetComponent<AccessDoor>().CurrState = doorModel.state;
+                    handlingPacket = true;
+                    try
+                    {
+                        doorModel.gameObj.GetComponent<AccessDoor>().CurrState = doorModel.state;
+                    }
+                    finally
+                    {
+                        handlingPacket = false;
+                    }
                 }
             }
             else

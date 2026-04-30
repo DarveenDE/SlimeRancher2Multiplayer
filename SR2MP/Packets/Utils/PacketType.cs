@@ -50,6 +50,14 @@ public enum PacketType : byte
     WeatherUpdate = 45,           // Server -> All Clients                                                              On Weather Update
     InitialWeather = 46,          // Server -> Client                                                                   Weather on Load
     LightningStrike = 47,         // Both Ways                                                                          On Lightning Strike
+    PuzzleSlotState = 48,         // Both Ways                                                                          On Puzzle Slot Filled
+    PlortDepositorState = 49,     // Both Ways                                                                          On Plort Depositor Filled
+    InitialPuzzleStates = 50,     // Server -> Client                                                                   Puzzle Slots and Plort Depositors on Load
+    InitialSyncComplete = 51,     // Server -> Client                                                                   Initial snapshot has been received
+    InitialSyncCompleteAck = 52,  // Client -> Server                                                                   Client has processed initial snapshot
+    RefineryItemCounts = 53,      // Both Ways                                                                          Refinery/fabricator material counts
+    LandPlotAmmoUpdate = 54,      // Both Ways                                                                          Silo and plort collector storage counts
+    LandPlotFeederState = 55,     // Both Ways                                                                          Auto-feeder speed and timer state
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

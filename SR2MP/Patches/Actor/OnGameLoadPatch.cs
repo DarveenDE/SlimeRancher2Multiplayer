@@ -30,7 +30,7 @@ public static class OnGameLoadPatch
             }
 
             SceneContext.Instance.GameModel._actorIdProvider._nextActorId =
-                NetworkActorManager.GetHighestActorIdInRange(0, 10000);
+                NetworkActorManager.GetNextActorIdInRange(0, 10000);
         };
     }
 }

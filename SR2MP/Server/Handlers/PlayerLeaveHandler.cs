@@ -15,7 +15,11 @@ public sealed class PlayerLeaveHandler : BasePacketHandler<PlayerLeavePacket>
 
     protected override void Handle(PlayerLeavePacket packet, IPEndPoint clientEp)
     {
-        string playerId = packet.PlayerId;
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
+        string playerId = client.PlayerId;
+        packet.PlayerId = playerId;
 
         if (playerManager.GetPlayer(playerId) == null)
         {
@@ -43,14 +47,6 @@ public sealed class PlayerLeaveHandler : BasePacketHandler<PlayerLeavePacket>
                 }
                 playerObjects.Remove(playerId);
             }
-
-            var leavePacket = new PlayerLeavePacket
-            {
-                Type = PacketType.BroadcastPlayerLeave,
-                PlayerId = playerId
-            };
-
-            Main.Server.SendToAll(leavePacket);
 
             SrLogger.LogMessage($"Player {playerId} left the server",
                 $"Player {playerId} left from {clientInfo}");

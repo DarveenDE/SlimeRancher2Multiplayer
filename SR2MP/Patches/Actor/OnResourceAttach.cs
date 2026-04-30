@@ -9,10 +9,15 @@ public static class OnResourceAttach
     public static void Prefix(ResourceCycle __instance, Joint joint)
     {
         if (handlingPacket) return;
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
+        if (SystemContext.Instance.SceneLoader.IsSceneLoadInProgress) return;
+        if (!__instance || !joint) return;
 
         if (joint.connectedBody)
         {
             var other = joint.connectedBody.GetComponent<ResourceCycle>();
+            if (!other || other == __instance || other._model == null)
+                return;
 
             SceneContext.Instance.GameModel.identifiables.Remove(other._model.actorId);
             SceneContext.Instance.GameModel.identifiablesByIdent[other._model.ident].Remove(other._model);

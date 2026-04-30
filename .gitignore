@@ -415,3 +415,15 @@ NewSR2MP/Networking/Patches/SteamContextPatch.cs
 /SR2MP/Patches/Private
 !SR2MP/DiscordRPC.dll
 ExternalAnnotations/
+
+# Local SR2MP development state
+/artifacts/
+/SR2MP/bin/
+/SR2MP/obj/
+/SR2MP/libraries/
+
+# Local tool/editor state
+*.user
+*.rsuser
+*.suo
+*.log

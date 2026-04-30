@@ -16,7 +16,12 @@ public sealed class PlayerJoinHandler : BasePacketHandler<PlayerJoinPacket>
 
     protected override void Handle(PlayerJoinPacket packet, IPEndPoint clientEp)
     {
-        string playerId = packet.PlayerId;
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
+        string playerId = client.PlayerId;
+        packet.PlayerId = playerId;
+        packet.PlayerName ??= "No Name Set";
 
         if (playerManager.GetPlayer(playerId) != null)
         {
@@ -53,7 +58,7 @@ public sealed class PlayerJoinHandler : BasePacketHandler<PlayerJoinPacket>
         };
 
         Main.Server.SendToAll(joinPacket);
-        Main.Server.SendToAllExcept(joinChatPacket, playerId);
+        Main.Server.SendToAllExcept(joinChatPacket, clientEp);
         MultiplayerUI.Instance.RegisterSystemMessage($"{packet.PlayerName} joined the world!", $"SYSTEM_JOIN_HOST_{playerId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageConnect);
     }
 }

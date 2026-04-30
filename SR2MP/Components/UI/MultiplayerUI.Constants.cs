@@ -2,12 +2,13 @@ namespace SR2MP.Components.UI;
 
 public sealed partial class MultiplayerUI
 {
-    public const float ButtonHeight = 25f;
-    public const float InputHeight = 25f;
-    public const float SpacerHeight = 7.5f;
-    public const float HorizontalSpacing = 2f;
-    public const float WindowWidth = 275f;
-    public const float WindowHeight = 450f;
+    public const float ButtonHeight = 28f;
+    public const float InputHeight = 28f;
+    public const float SpacerHeight = 8f;
+    public const float HorizontalSpacing = 10f;
+    public const float WindowWidth = 430f;
+    public const float WindowHeight = 420f;
+    public const float WindowHeaderHeight = 30f;
 
     public const float ChatHeaderHeight = 15f;
     public const float ChatWidth = 400;

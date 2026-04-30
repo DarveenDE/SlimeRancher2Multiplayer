@@ -107,7 +107,14 @@ public sealed class NetworkActorManager
         return gameModel && gameModel!.TryGetIdentifiableModel(id, out _);
     }
 
-    public bool TrySpawnNetworkActor(ActorId actorId, Vector3 position, Quaternion rotation, int typeId, int sceneId, out ActorModel? actorModel)
+    public bool TrySpawnNetworkActor(
+        ActorId actorId,
+        Vector3 position,
+        Quaternion rotation,
+        int typeId,
+        int sceneId,
+        bool isPrePlaced,
+        out IdentifiableModel? actorModel)
     {
         actorModel = null;
 
@@ -127,37 +134,38 @@ public sealed class NetworkActorManager
 
         if (type.isGadget())
         {
-            SrLogger.LogWarning($"Tried to spawn gadget over the network, this has not been implemented yet!\n\tActor {actorId.Value}: {type.name}");
-            return false;
+            return TrySpawnNetworkGadget(actorId, position, rotation, type, scene, isPrePlaced, out actorModel);
         }
 
         if (ActorIDAlreadyInUse(actorId))
             return false;
 
-        actorModel = SceneContext.Instance.GameModel.CreateActorModel(
+        var spawnedActorModel = SceneContext.Instance.GameModel.CreateActorModel(
                 actorId,
                 type,
                 scene,
                 position,
                 rotation);
 
-        if (actorModel == null)
+        if (spawnedActorModel == null)
             return false;
 
-        SceneContext.Instance.GameModel.identifiables[actorId] = actorModel;
+        actorModel = spawnedActorModel;
+
+        SceneContext.Instance.GameModel.identifiables[actorId] = spawnedActorModel;
         if (SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(type, out var actors))
         {
-            actors.Add(actorModel);
+            actors.Add(spawnedActorModel);
         }
         else
         {
             actors = new CppCollections.List<IdentifiableModel>();
-            actors.Add(actorModel);
+            actors.Add(spawnedActorModel);
             SceneContext.Instance.GameModel.identifiablesByIdent.Add(type, actors);
         }
 
         handlingPacket = true;
-        var actor = InstantiationHelpers.InstantiateActorFromModel(actorModel);
+        var actor = InstantiationHelpers.InstantiateActorFromModel(spawnedActorModel);
         handlingPacket = false;
 
         if (!actor)
@@ -168,8 +176,76 @@ public sealed class NetworkActorManager
         networkComponent.previousRotation = rotation;
         networkComponent.nextRotation = rotation;
         actor.transform.position = position;
-        actorManager.Actors[actorId.Value] = actorModel;
+        actorManager.Actors[actorId.Value] = spawnedActorModel;
 
+        return true;
+    }
+
+    public bool TrySpawnNetworkActor(
+        ActorId actorId,
+        Vector3 position,
+        Quaternion rotation,
+        int typeId,
+        int sceneId,
+        out IdentifiableModel? actorModel)
+        => TrySpawnNetworkActor(actorId, position, rotation, typeId, sceneId, false, out actorModel);
+
+    private static bool TrySpawnNetworkGadget(
+        ActorId actorId,
+        Vector3 position,
+        Quaternion rotation,
+        IdentifiableType type,
+        Il2CppMonomiPark.SlimeRancher.SceneManagement.SceneGroup scene,
+        bool isPrePlaced,
+        out IdentifiableModel? gadgetModel)
+    {
+        gadgetModel = null;
+
+        var gadgetDefinition = type.TryCast<GadgetDefinition>();
+        if (gadgetDefinition == null)
+        {
+            SrLogger.LogWarning($"Tried to spawn gadget with a non-gadget definition!\n\tActor {actorId.Value}: {type.name}");
+            return false;
+        }
+
+        if (ActorIDAlreadyInUse(actorId))
+            return false;
+
+        var model = SceneContext.Instance.GameModel.CreateGadgetModel(
+            gadgetDefinition,
+            actorId,
+            scene,
+            position,
+            isPrePlaced);
+
+        if (model == null)
+            return false;
+
+        model.eulerRotation = rotation.eulerAngles;
+        SceneContext.Instance.GameModel.identifiables[actorId] = model;
+
+        if (SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(type, out var actors))
+        {
+            actors.Add(model);
+        }
+        else
+        {
+            actors = new CppCollections.List<IdentifiableModel>();
+            actors.Add(model);
+            SceneContext.Instance.GameModel.identifiablesByIdent.Add(type, actors);
+        }
+
+        handlingPacket = true;
+        var gadget = GadgetDirector.InstantiateGadgetFromModel(model);
+        handlingPacket = false;
+
+        if (gadget)
+        {
+            gadget.transform.position = position;
+            gadget.transform.rotation = rotation;
+        }
+
+        gadgetModel = model;
         return true;
     }
 
@@ -187,6 +263,29 @@ public sealed class NetworkActorManager
             }
         }
         return result;
+    }
+
+    public static long GetNextActorIdInRange(long min, long max)
+    {
+        var foundActor = false;
+        var highest = min;
+
+        foreach (var actor in SceneContext.Instance.GameModel.identifiables)
+        {
+            var id = actor.value.actorId.Value;
+            if (id < min || id >= max)
+                continue;
+
+            foundActor = true;
+            if (id > highest)
+                highest = id;
+        }
+
+        if (!foundActor)
+            return min == 0 ? 1 : min;
+
+        var next = highest + 1;
+        return next < max ? next : max - 1;
     }
 
     internal IEnumerator TakeOwnershipOfNearby()

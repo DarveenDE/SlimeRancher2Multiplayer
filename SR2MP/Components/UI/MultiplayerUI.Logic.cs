@@ -6,15 +6,37 @@ namespace SR2MP.Components.UI;
 
 public sealed partial class MultiplayerUI
 {
+    public void OpenHub()
+    {
+        multiplayerUIHidden = false;
+        viewingSettings = false;
+        viewingHelp = false;
+        activeTab = Main.Server.IsRunning() || Main.Client.IsConnected
+            ? MultiplayerTab.Players
+            : MultiplayerTab.Join;
+
+        MenuEUtil.CloseOpenMenu();
+    }
+
     public void Host(ushort port)
     {
+        uiStatus = $"Starting host on port {port}...";
+        SrLogger.LogMessage($"Host button pressed. Starting server on port {port}.", SrLogTarget.Both);
+
         MenuEUtil.CloseOpenMenu();
         Main.Server.Start(port, true);
         Main.SetConfigValue("host_port", hostPortInput);
+
+        uiStatus = Main.Server.IsRunning()
+            ? $"Hosting on port {port}."
+            : "Host did not start. Check SR2MP log.";
     }
 
     public void Connect(string ip, ushort port)
     {
+        uiStatus = $"Connecting to {ip}:{port}...";
+        SrLogger.LogMessage($"Connect button pressed. Connecting to {ip}:{port}.", SrLogTarget.Both);
+
         MenuEUtil.CloseOpenMenu();
 
         if (ip.StartsWith("[") && ip.EndsWith("]"))
@@ -43,6 +65,8 @@ public sealed partial class MultiplayerUI
 
         Main.SetConfigValue("recent_ip", ipInput);
         Main.SetConfigValue("recent_port", portInput);
+
+        uiStatus = $"Connecting to {ip}:{port}.";
     }
 
     public static void Kick(string player)

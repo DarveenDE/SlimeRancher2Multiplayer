@@ -5,6 +5,7 @@ namespace SR2MP.Packets.Landplot;
 public sealed class GardenPlantPacket : IPacket
 {
     public string ID { get; set; }
+    public bool HasCrop { get; set; }
     public int ActorType { get; set; }
 
     public PacketType Type => PacketType.GardenPlant;
@@ -13,12 +14,15 @@ public sealed class GardenPlantPacket : IPacket
     public void Serialise(PacketWriter writer)
     {
         writer.WriteString(ID);
-        writer.WriteInt(ActorType);
+        writer.WriteBool(HasCrop);
+        if (HasCrop)
+            writer.WriteInt(ActorType);
     }
 
     public void Deserialise(PacketReader reader)
     {
         ID = reader.ReadString();
-        ActorType = reader.ReadInt();
+        HasCrop = reader.ReadBool();
+        ActorType = HasCrop ? reader.ReadInt() : -1;
     }
 }

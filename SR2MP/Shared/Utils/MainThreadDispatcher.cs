@@ -10,6 +10,12 @@ public sealed class MainThreadDispatcher : MonoBehaviour
 
     // ReSharper disable once InconsistentNaming
     private static readonly ConcurrentQueue<Action?> actionQueue = new();
+    private static int queuedActionCount;
+
+    private const int MaxActionsPerFrame = 256;
+    private const int TimeCheckInterval = 32;
+    private const float MaxFrameMilliseconds = 4f;
+    private float nextBacklogLogTime;
 
     public static void Initialize()
     {
@@ -26,8 +32,14 @@ public sealed class MainThreadDispatcher : MonoBehaviour
     public void Update()
 #pragma warning restore CA1822 // Mark members as static
     {
-        while (actionQueue.TryDequeue(out var action))
+        var frameStart = Time.realtimeSinceStartup;
+        var processed = 0;
+
+        while (processed < MaxActionsPerFrame && actionQueue.TryDequeue(out var action))
         {
+            if (System.Threading.Interlocked.Decrement(ref queuedActionCount) < 0)
+                System.Threading.Volatile.Write(ref queuedActionCount, 0);
+
             try
             {
                 action?.Invoke();
@@ -36,12 +48,38 @@ public sealed class MainThreadDispatcher : MonoBehaviour
             {
                 SrLogger.LogError($"Error executing main thread action: {ex}", SrLogTarget.Both);
             }
+
+            processed++;
+
+            if (processed % TimeCheckInterval == 0
+                && (Time.realtimeSinceStartup - frameStart) * 1000f >= MaxFrameMilliseconds)
+            {
+                break;
+            }
+        }
+
+        var backlog = Math.Max(0, System.Threading.Volatile.Read(ref queuedActionCount));
+        if (backlog > 0 && Time.realtimeSinceStartup >= nextBacklogLogTime)
+        {
+            nextBacklogLogTime = Time.realtimeSinceStartup + 5f;
+            SrLogger.LogPacketSize($"Main thread dispatcher backlog: {backlog} action(s)", SrLogTarget.Both);
         }
     }
 
     public static void Enqueue(Action? action)
     {
+        if (action == null)
+            return;
+
+        System.Threading.Interlocked.Increment(ref queuedActionCount);
         actionQueue.Enqueue(action);
+    }
+
+    public static void Clear()
+    {
+        while (actionQueue.TryDequeue(out _)) { }
+        System.Threading.Volatile.Write(ref queuedActionCount, 0);
+        SrLogger.LogPacketSize("Main thread dispatcher queue cleared", SrLogTarget.Both);
     }
 
 #pragma warning disable CA1822 // Mark members as static

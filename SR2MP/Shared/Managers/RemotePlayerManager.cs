@@ -62,6 +62,7 @@ public sealed class RemotePlayerManager
         {
             PlayerId = playerId,
             Position = position,
+            SceneGroup = GetCurrentSceneGroupId(),
             Rotation = rotation,
             HorizontalMovement = horizontalMovement,
             ForwardMovement = forwardMovement,
@@ -79,6 +80,7 @@ public sealed class RemotePlayerManager
     public void UpdatePlayer(
         string playerId,
         Vector3 position,
+        int sceneGroup,
         float rotation,
         float horizontalMovement,
         float forwardMovement,
@@ -93,6 +95,7 @@ public sealed class RemotePlayerManager
         if (!players.TryGetValue(playerId, out var player))
             return;
         player.Position = position;
+        player.SceneGroup = sceneGroup;
         player.Rotation = rotation;
         player.HorizontalMovement = horizontalMovement;
         player.ForwardMovement = forwardMovement;
@@ -123,5 +126,22 @@ public sealed class RemotePlayerManager
         }
 
         SrLogger.LogMessage("All remote players cleared!", SrLogTarget.Both);
+    }
+
+    private static int GetCurrentSceneGroupId()
+    {
+        try
+        {
+            if (!SystemContext.Instance)
+                return -1;
+
+            var sceneGroup = SystemContext.Instance.SceneLoader.CurrentSceneGroup;
+            return sceneGroup ? NetworkSceneManager.GetPersistentID(sceneGroup) : -1;
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogDebug($"Could not resolve current scene group for player update: {ex.Message}", SrLogTarget.Main);
+            return -1;
+        }
     }
 }

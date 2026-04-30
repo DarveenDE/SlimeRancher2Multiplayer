@@ -8,15 +8,17 @@ public sealed partial class MultiplayerUI
     private string portInput = string.Empty;
     private string hostPortInput = "1919";
     private bool allowCheatsInput;
+    private string uiStatus = string.Empty;
+    private MultiplayerTab activeTab = MultiplayerTab.Join;
 
     private void FirstTimeScreen()
     {
         bool valid = true;
 
-        DrawText("Please select an username to play multiplayer.");
+        DrawText("Choose the name other players will see.");
 
         DrawText("Username:", 2);
-        usernameInput = GUI.TextField(CalculateInputLayout(6, 2, 1), usernameInput);
+        usernameInput = DrawTextInput(CalculateInputLayout(6, 2, 1), usernameInput, 32, UsernameInputName);
 
         if (string.IsNullOrWhiteSpace(usernameInput))
         {
@@ -28,6 +30,7 @@ public sealed partial class MultiplayerUI
         if (!GUI.Button(CalculateButtonLayout(6), "Save settings")) return;
 
         firstTime = false;
+        activeTab = MultiplayerTab.Join;
         Main.SetConfigValue("internal_setup_ui", false);
         Main.SetConfigValue("username", usernameInput);
     }
@@ -36,14 +39,8 @@ public sealed partial class MultiplayerUI
     {
         bool validUsername = true;
 
-        DrawText("Username:", 2);
-        usernameInput = GUI.TextField(CalculateInputLayout(6, 2, 1), usernameInput);
-
-        DrawText("Allow Cheats:", 2);
-        if (GUI.Button(CalculateButtonLayout(6, 2, 1), allowCheatsInput.ToStringYesOrNo()))
-        {
-            allowCheatsInput = !allowCheatsInput;
-        }
+        DrawText("Settings");
+        DrawSettingsFields();
 
         if (string.IsNullOrWhiteSpace(usernameInput))
         {
@@ -51,63 +48,31 @@ public sealed partial class MultiplayerUI
             validUsername = false;
         }
 
-        if (!validUsername) return;
-        if (!GUI.Button(CalculateButtonLayout(6), "Save")) return;
+        if (DrawEnabledButton("Save", validUsername, 2, 0))
+        {
+            SaveSettings();
+            viewingSettings = false;
+        }
 
-        Main.SetConfigValue("username", usernameInput);
-        Main.SetConfigValue("allow_cheats", allowCheatsInput);
-        viewingSettings = false;
+        if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Back"))
+            viewingSettings = false;
     }
 
     private void MainMenuScreen()
     {
-        if (GUI.Button(CalculateButtonLayout(6), "Settings"))
+        if (GUI.Button(CalculateButtonLayout(6, 2, 0), "Settings"))
             viewingSettings = true;
 
-        DrawText("You must be in a save to host or connect!");
-        DrawText("Make sure you join an EMPTY save before connecting, this save file WILL BE RESET.");
+        if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Hide"))
+            HideHub();
+
+        DrawText("Load into a save to host or join a world.");
+        DrawText("When joining, use an empty client save because the joining save is reset.");
     }
 
     private void InGameScreen()
     {
-        if (GUI.Button(CalculateButtonLayout(6), "Settings"))
-            viewingSettings = true;
-
-        DrawText("Join a world:");
-
-        DrawText("IP", 2);
-        ipInput = GUI.TextField(CalculateInputLayout(6, 2, 1), ipInput);
-
-        DrawText("Port", 2);
-        portInput = GUI.TextField(CalculateInputLayout(6, 2, 1), portInput);
-
-        var validPort = ushort.TryParse(portInput, out var port);
-        if (validPort)
-        {
-            if (GUI.Button(CalculateButtonLayout(6), "Connect"))
-                Connect(ipInput, port);
-        }
-        else
-        {
-            DrawText("Invalid port: Must be a number from 1 to 65535.");
-        }
-
-        DrawText("Host a world:");
-
-        DrawText("Port", 2);
-        hostPortInput = GUI.TextField(CalculateInputLayout(6, 2, 1), hostPortInput);
-
-        var validHostPort = ushort.TryParse(hostPortInput, out var hostPort);
-        if (validHostPort)
-        {
-            if (GUI.Button(CalculateButtonLayout(6), "Host"))
-                Host(hostPort);
-        }
-        else
-        {
-            DrawText("Invalid port. Must be a number from 1 to 65535.");
-            DrawText("Make sure your pc doesn't use the port anywhere else.");
-        }
+        DrawHubScreen();
     }
 
     private void UnimplementedScreen()
@@ -117,26 +82,226 @@ public sealed partial class MultiplayerUI
 
     private void HostingScreen()
     {
-        DrawText($"You are the hosting on port: {Main.Server.Port}");
-        DrawText("All players:");
-
-        var players = playerManager.GetAllPlayers();
-
-        foreach (var player in players)
-        {
-            DrawText(!string.IsNullOrEmpty(player.Username) ? player.Username : "Invalid username.");
-        }
+        DrawHubScreen();
     }
 
     private void ConnectedScreen()
     {
-        DrawText("You are connected to the server.");
-        DrawText("All players:");
+        DrawHubScreen();
+    }
 
+    private void DrawHubScreen()
+    {
+        DrawHubActions();
+        DrawConnectionSummary();
+        DrawTabBar();
+
+        switch (activeTab)
+        {
+            case MultiplayerTab.Join:
+                DrawJoinTab();
+                break;
+            case MultiplayerTab.Host:
+                DrawHostTab();
+                break;
+            case MultiplayerTab.Players:
+                DrawPlayersTab();
+                break;
+            case MultiplayerTab.Settings:
+                DrawSettingsTab();
+                break;
+        }
+    }
+
+    private void DrawHubActions()
+    {
+        if (GUI.Button(CalculateButtonLayout(6, 2, 0), "Hide"))
+            HideHub();
+
+        if (Main.Server.IsRunning())
+        {
+            if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Close Host"))
+            {
+                Main.Server.Close();
+                uiStatus = "Hosted world closed.";
+            }
+        }
+        else if (Main.Client.IsConnected)
+        {
+            if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Disconnect"))
+            {
+                Main.Client.Disconnect();
+                uiStatus = "Disconnected from world.";
+            }
+        }
+        else
+        {
+            if (GUI.Button(CalculateButtonLayout(6, 2, 1), "Settings"))
+                activeTab = MultiplayerTab.Settings;
+        }
+    }
+
+    private void DrawConnectionSummary()
+    {
+        DrawText(GetConnectionStatusText());
+
+        if (!string.IsNullOrWhiteSpace(uiStatus))
+            DrawText(uiStatus);
+    }
+
+    private void DrawTabBar()
+    {
+        if (GUI.Button(CalculateButtonLayout(6, 4, 0), GetTabText(MultiplayerTab.Join, "Join")))
+            activeTab = MultiplayerTab.Join;
+        if (GUI.Button(CalculateButtonLayout(6, 4, 1), GetTabText(MultiplayerTab.Host, "Host")))
+            activeTab = MultiplayerTab.Host;
+        if (GUI.Button(CalculateButtonLayout(6, 4, 2), GetTabText(MultiplayerTab.Players, "Players")))
+            activeTab = MultiplayerTab.Players;
+        if (GUI.Button(CalculateButtonLayout(6, 4, 3), GetTabText(MultiplayerTab.Settings, "Settings")))
+            activeTab = MultiplayerTab.Settings;
+    }
+
+    private void DrawJoinTab()
+    {
+        DrawText("Join a world");
+
+        DrawText("IP", 2);
+        ipInput = DrawTextInput(CalculateInputLayout(6, 2, 1), ipInput, 128, IpInputName);
+
+        DrawText("Port", 2);
+        portInput = DrawTextInput(CalculateInputLayout(6, 2, 1), portInput, 5, PortInputName);
+
+        bool validIp = !string.IsNullOrWhiteSpace(ipInput);
+        bool validPort = ushort.TryParse(portInput, out var port) && port > 0;
+        bool canConnect = validIp && validPort && !Main.Server.IsRunning() && !Main.Client.IsConnected;
+
+        if (!validIp)
+            DrawText("Enter an IP address or hostname.");
+        else if (!validPort)
+            DrawText("Invalid port: Must be a number from 1 to 65535.");
+        else if (Main.Server.IsRunning())
+            DrawText("Close your hosted world before joining another one.");
+        else if (Main.Client.IsConnected)
+            DrawText("Disconnect before joining another world.");
+
+        if (DrawEnabledButton("Connect", canConnect))
+            Connect(ipInput, port);
+    }
+
+    private void DrawHostTab()
+    {
+        DrawText("Host this save");
+
+        DrawText("Port", 2);
+        hostPortInput = DrawTextInput(CalculateInputLayout(6, 2, 1), hostPortInput, 5, HostPortInputName);
+
+        bool validHostPort = ushort.TryParse(hostPortInput, out var hostPort) && hostPort > 0;
+        bool canHost = validHostPort && !Main.Server.IsRunning() && !Main.Client.IsConnected;
+
+        if (!validHostPort)
+        {
+            DrawText("Invalid port. Must be a number from 1 to 65535.");
+            DrawText("Make sure your pc doesn't use the port anywhere else.");
+        }
+        else if (Main.Server.IsRunning())
+        {
+            DrawText($"Already hosting on port {Main.Server.Port}.");
+        }
+        else if (Main.Client.IsConnected)
+        {
+            DrawText("Disconnect before hosting your own world.");
+        }
+
+        if (DrawEnabledButton("Host", canHost))
+            Host(hostPort);
+    }
+
+    private void DrawPlayersTab()
+    {
         var players = playerManager.GetAllPlayers();
+
+        DrawText("Players");
+        DrawText($"{Main.Username} (you)");
+
+        if (players.Count == 0)
+        {
+            DrawText("No other players connected.");
+            return;
+        }
+
+        int shownPlayers = 0;
         foreach (var player in players)
         {
-            DrawText(!string.IsNullOrEmpty(player.Username) ? player.Username : "Invalid username.");
+            if (shownPlayers >= 8)
+            {
+                DrawText($"+ {players.Count - shownPlayers} more");
+                break;
+            }
+
+            DrawText(!string.IsNullOrWhiteSpace(player.Username) ? player.Username : "Invalid username.");
+            shownPlayers++;
         }
+    }
+
+    private void DrawSettingsTab()
+    {
+        DrawText("Settings");
+        DrawSettingsFields();
+
+        bool validUsername = !string.IsNullOrWhiteSpace(usernameInput);
+        if (!validUsername)
+            DrawText("You must set an Username.");
+
+        if (DrawEnabledButton("Save Settings", validUsername))
+            SaveSettings();
+    }
+
+    private void DrawSettingsFields()
+    {
+        DrawText("Username:", 2);
+        usernameInput = DrawTextInput(CalculateInputLayout(6, 2, 1), usernameInput, 32, UsernameInputName);
+
+        DrawText("Allow Cheats:", 2);
+        if (GUI.Button(CalculateButtonLayout(6, 2, 1), allowCheatsInput.ToStringYesOrNo()))
+            allowCheatsInput = !allowCheatsInput;
+    }
+
+    private void SaveSettings()
+    {
+        Main.SetConfigValue("username", usernameInput);
+        Main.SetConfigValue("allow_cheats", allowCheatsInput);
+        uiStatus = "Settings saved.";
+    }
+
+    private void HideHub()
+    {
+        multiplayerUIHidden = true;
+        focusedTextInput = string.Empty;
+    }
+
+    private bool DrawEnabledButton(string label, bool enabled, int horizontalShare = 1, int horizontalIndex = 0)
+    {
+        bool wasEnabled = GUI.enabled;
+        GUI.enabled = wasEnabled && enabled;
+        bool clicked = GUI.Button(CalculateButtonLayout(6, horizontalShare, horizontalIndex), label);
+        GUI.enabled = wasEnabled;
+
+        return clicked;
+    }
+
+    private string GetTabText(MultiplayerTab tab, string label)
+    {
+        return tab == activeTab ? $"[{label}]" : label;
+    }
+
+    private static string GetConnectionStatusText()
+    {
+        if (Main.Server.IsRunning())
+            return $"Hosting on port {Main.Server.Port} - {Main.Server.GetClientCount()} client(s) connected.";
+
+        if (Main.Client.IsConnected)
+            return "Connected to a hosted world.";
+
+        return "Ready to host or join.";
     }
 }

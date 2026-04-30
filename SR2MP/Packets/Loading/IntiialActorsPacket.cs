@@ -11,6 +11,7 @@ public sealed class InitialActorsPacket : IPacket
         public Quaternion Rotation { get; set; }
         public int ActorType { get; set; }
         public int Scene { get; set; }
+        public bool IsPrePlaced { get; set; }
 
         public readonly void Serialise(PacketWriter writer)
         {
@@ -19,6 +20,7 @@ public sealed class InitialActorsPacket : IPacket
             writer.WriteLong(ActorId);
             writer.WriteInt(ActorType);
             writer.WriteInt(Scene);
+            writer.WriteBool(IsPrePlaced);
         }
 
         public void Deserialise(PacketReader reader)
@@ -28,6 +30,7 @@ public sealed class InitialActorsPacket : IPacket
             ActorId = reader.ReadLong();
             ActorType = reader.ReadInt();
             Scene = reader.ReadInt();
+            IsPrePlaced = reader.ReadBool();
         }
     }
 

@@ -12,37 +12,11 @@ public sealed class GardenPlantHandler : BaseClientPacketHandler<GardenPlantPack
 
     protected override void Handle(GardenPlantPacket packet)
     {
-        var model = SceneContext.Instance.GameModel.landPlots[packet.ID];
-
-        if (packet.ActorType == 9)
+        handlingPacket = true;
+        try
         {
-            model.resourceGrowerDefinition = null;
-
-            if (!model.gameObj)
-                return;
-
-            var plot = model.gameObj.GetComponentInChildren<LandPlot>();
-
-            handlingPacket = true;
-            plot.DestroyAttached();
+            GardenPlotSyncManager.ApplyRemoteState(packet.ID, packet.HasCrop, packet.ActorType, "client garden plant");
         }
-        else
-        {
-            var actor = actorManager.ActorTypes[packet.ActorType];
-
-            model.resourceGrowerDefinition =
-                GameContext.Instance.AutoSaveDirector._saveReferenceTranslation._resourceGrowerTranslation.RawLookupDictionary._entries.FirstOrDefault(x =>
-                    x.value._primaryResourceType == actor)!.value;
-
-            if (!model.gameObj)
-                return;
-
-            var garden = model.gameObj.GetComponentInChildren<GardenCatcher>();
-
-            handlingPacket = true;
-            if (garden.CanAccept(actor))
-                garden.Plant(actor, true);
-        }
-        handlingPacket = false;
+        finally { handlingPacket = false; }
     }
 }

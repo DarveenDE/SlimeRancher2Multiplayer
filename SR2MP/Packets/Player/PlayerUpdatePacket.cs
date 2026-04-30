@@ -6,6 +6,7 @@ public sealed class PlayerUpdatePacket : IPacket
 {
     public string PlayerId { get; set; }
     public Vector3 Position { get; set; }
+    public int SceneGroup { get; set; }
     public float Rotation { get; set; }
     public int AirborneState {get; set;}
     public bool Moving { get; set; }
@@ -25,6 +26,7 @@ public sealed class PlayerUpdatePacket : IPacket
         writer.WriteString(PlayerId);
 
         writer.WriteVector3(Position);
+        writer.WriteInt(SceneGroup);
         writer.WriteFloat(Rotation);
 
         writer.WriteInt(AirborneState);
@@ -47,6 +49,7 @@ public sealed class PlayerUpdatePacket : IPacket
         PlayerId = reader.ReadString();
 
         Position = reader.ReadVector3();
+        SceneGroup = reader.ReadInt();
         Rotation = reader.ReadFloat();
 
         AirborneState = reader.ReadInt();

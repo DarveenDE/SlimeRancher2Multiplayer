@@ -2,6 +2,7 @@ using System.Net;
 using SR2MP.Packets.Landplot;
 using SR2MP.Packets.Utils;
 using SR2MP.Server.Managers;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Server.Handlers;
 
@@ -13,39 +14,14 @@ public sealed class GardenPlantHandler : BasePacketHandler<GardenPlantPacket>
 
     protected override void Handle(GardenPlantPacket packet, IPEndPoint clientEp)
     {
-        var model = SceneContext.Instance.GameModel.landPlots[packet.ID];
-
-        if (packet.ActorType == 9)
+        handlingPacket = true;
+        try
         {
-            model.resourceGrowerDefinition = null;
-
-            if (model.gameObj)
-            {
-                var plot = model.gameObj.GetComponentInChildren<LandPlot>();
-
-                handlingPacket = true;
-                plot.DestroyAttached();
-                handlingPacket = false;
-            }
+            if (!GardenPlotSyncManager.ApplyRemoteState(packet.ID, packet.HasCrop, packet.ActorType, "server garden plant"))
+                return;
         }
-        else
-        {
-            var actor = actorManager.ActorTypes[packet.ActorType];
+        finally { handlingPacket = false; }
 
-            model.resourceGrowerDefinition =
-                GameContext.Instance.AutoSaveDirector._saveReferenceTranslation._resourceGrowerTranslation.RawLookupDictionary._entries.FirstOrDefault(x =>
-                    x.value._primaryResourceType == actor)!.value;
-
-            if (model.gameObj)
-            {
-                var garden = model.gameObj.GetComponentInChildren<GardenCatcher>();
-
-                handlingPacket = true;
-                if (garden.CanAccept(actor))
-                    garden.Plant(actor, true);
-                handlingPacket = false;
-            }
-        }
         Main.Server.SendToAllExcept(packet, clientEp);
     }
 }

@@ -23,7 +23,7 @@ public sealed class Client
     private volatile bool isConnected;
     private volatile bool connectionAcknowledged;
     private Timer? connectionTimeoutTimer;
-    private const int ConnectionTimeoutSeconds = 10;
+    private const int ConnectionTimeoutSeconds = 30;
 
     private bool shownConnectionError;
 
@@ -82,6 +82,8 @@ public sealed class Client
             }
 
             PacketDeduplication.Clear();
+            PacketChunkManager.Clear();
+            MainThreadDispatcher.Clear();
 
             serverEndPoint = new IPEndPoint(parsedIp, port);
             udpClient.Connect(serverEndPoint);
@@ -134,7 +136,7 @@ public sealed class Client
     {
         if (connectionAcknowledged || !isConnected)
             return;
-        SrLogger.LogError("Connection timeout: Server did not respond within 10 seconds", SrLogTarget.Both);
+        SrLogger.LogError($"Connection timeout: Server did not finish initial sync within {ConnectionTimeoutSeconds} seconds", SrLogTarget.Both);
         Disconnect();
     }
 
@@ -240,7 +242,7 @@ public sealed class Client
             // Get sequence number for ordered packets (pass packet type)
             if (reliability == PacketReliability.ReliableOrdered)
             {
-                sequenceNumber = reliabilityManager?.GetNextSequenceNumber((byte)packet.Type) ?? 0;
+                sequenceNumber = reliabilityManager?.GetNextSequenceNumber(serverEndPoint, (byte)packet.Type) ?? 0;
             }
 
             var chunks = PacketChunkManager.SplitPacket(data, reliability, sequenceNumber, out ushort packetId);
@@ -278,6 +280,11 @@ public sealed class Client
     }
 
     // Check if ordered packet should be processed
+    public OrderedPacketStatus AcceptOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
+    {
+        return reliabilityManager?.AcceptOrderedPacket(sender, sequenceNumber, packetType) ?? OrderedPacketStatus.Accepted;
+    }
+
     public bool ShouldProcessOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
     {
         return reliabilityManager?.ShouldProcessOrderedPacket(sender, sequenceNumber, packetType) ?? true;
@@ -311,6 +318,7 @@ public sealed class Client
             }
 
             PacketDeduplication.Clear();
+            PacketChunkManager.Clear();
 
             isConnected = false;
 
@@ -333,6 +341,8 @@ public sealed class Client
                 udpClient.Close();
                 udpClient = null;
             }
+
+            MainThreadDispatcher.Clear();
 
             if (receiveThread is { IsAlive: true })
             {

@@ -17,8 +17,14 @@ public sealed class AccessDoorHandler : BasePacketHandler<AccessDoorPacket>
         var model = SceneContext.Instance.GameModel.doors[packet.ID];
 
         handlingPacket = true;
-        model.gameObj.GetComponent<AccessDoor>().CurrState = packet.State;
-        handlingPacket = false;
+        try
+        {
+            model.gameObj.GetComponent<AccessDoor>().CurrState = packet.State;
+        }
+        finally
+        {
+            handlingPacket = false;
+        }
 
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }

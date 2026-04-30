@@ -1,5 +1,6 @@
 using System.Collections;
 using HarmonyLib;
+using Il2CppMonomiPark.SlimeRancher.Player.CharacterController;
 using Il2CppMonomiPark.SlimeRancher.SceneManagement;
 using MelonLoader;
 using SR2MP.Components.Actor;
@@ -11,14 +12,18 @@ namespace SR2MP.Patches.Actor;
 [HarmonyPatch(typeof(InstantiationHelpers), nameof(InstantiationHelpers.InstantiateActor))]
 public static class OnActorSpawn
 {
-    private static IEnumerator SpawnOverNetwork(int actorType, byte sceneGroup, GameObject actor)
+    private static IEnumerator SpawnOverNetwork(int actorType, int sceneGroup, GameObject actor)
     {
         yield return null;
 
-        if (!actor)
+        if (!actor || (!Main.Server.IsRunning() && !Main.Client.IsConnected))
             yield break;
 
-        var id = actor.GetComponent<IdentifiableActor>().GetActorId();
+        var identifiableActor = actor.GetComponent<IdentifiableActor>();
+        if (!identifiableActor)
+            yield break;
+
+        var id = identifiableActor.GetActorId();
 
         var packet = new ActorSpawnPacket
         {
@@ -31,7 +36,7 @@ public static class OnActorSpawn
 
         Main.SendToAllOrServer(packet);
 
-        actorManager.Actors[id.Value] = actor.GetComponent<IdentifiableActor>()._model;
+        actorManager.Actors[id.Value] = identifiableActor._model;
     }
 
     public static void Postfix(
@@ -40,11 +45,26 @@ public static class OnActorSpawn
         SceneGroup sceneGroup)
     {
         if (handlingPacket) return;
-        __result.AddComponent<NetworkActor>().LocallyOwned = true;
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
+        if (SystemContext.Instance.SceneLoader.IsSceneLoadInProgress) return;
+        if (!__result || !original || !sceneGroup) return;
+        if (__result.GetComponent<SRCharacterController>()) return;
 
-        var actorType = NetworkActorManager.GetPersistentID(original.GetComponent<Identifiable>().identType);
+        var identifiable = original.GetComponent<Identifiable>();
+        if (!identifiable || !identifiable.identType || identifiable.identType.IsPlayer) return;
+
+        var identifiableActor = __result.GetComponent<IdentifiableActor>();
+        if (!identifiableActor) return;
+
+        var networkActor = __result.GetComponent<NetworkActor>();
+        if (!networkActor)
+            networkActor = __result.AddComponent<NetworkActor>();
+
+        networkActor.LocallyOwned = true;
+
+        var actorType = NetworkActorManager.GetPersistentID(identifiable.identType);
         var sceneGroupId = NetworkSceneManager.GetPersistentID(sceneGroup);
 
-        MelonCoroutines.Start(SpawnOverNetwork(actorType, (byte)sceneGroupId, __result));
+        MelonCoroutines.Start(SpawnOverNetwork(actorType, sceneGroupId, __result));
     }
 }

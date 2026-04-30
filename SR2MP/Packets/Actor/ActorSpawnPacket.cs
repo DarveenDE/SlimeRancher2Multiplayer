@@ -9,7 +9,7 @@ public struct ActorSpawnPacket : IPacket
     public Quaternion Rotation { get; set; }
     public Vector3 Position { get; set; }
     public int ActorType { get; set; }
-    public byte SceneGroup { get; set; }
+    public int SceneGroup { get; set; }
 
     public readonly PacketType Type => PacketType.ActorSpawn;
     public readonly PacketReliability Reliability => PacketReliability.Reliable;
@@ -20,7 +20,7 @@ public struct ActorSpawnPacket : IPacket
         writer.WriteVector3(Position);
         writer.WriteQuaternion(Rotation);
         writer.WriteInt(ActorType);
-        writer.WriteByte(SceneGroup);
+        writer.WriteInt(SceneGroup);
     }
 
     public void Deserialise(PacketReader reader)
@@ -29,6 +29,6 @@ public struct ActorSpawnPacket : IPacket
         Position = reader.ReadVector3();
         Rotation = reader.ReadQuaternion();
         ActorType = reader.ReadInt();
-        SceneGroup = reader.ReadByte();
+        SceneGroup = reader.ReadInt();
     }
 }

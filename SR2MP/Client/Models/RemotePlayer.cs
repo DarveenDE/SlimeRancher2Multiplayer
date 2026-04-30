@@ -6,6 +6,7 @@ public sealed class RemotePlayer
     public string Username { get; set; }
 
     public Vector3 Position { get; set; }
+    public int SceneGroup { get; set; } = -1;
     public float Rotation { get; set; }
 
     // Animation stuff

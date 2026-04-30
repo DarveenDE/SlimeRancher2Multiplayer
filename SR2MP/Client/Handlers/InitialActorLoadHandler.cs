@@ -24,6 +24,13 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
         {
             if (actor.value.ident.IsPlayer) continue;
 
+            var gadget = actor.value.TryCast<GadgetModel>();
+            if (gadget != null)
+            {
+                SceneContext.Instance.GameModel.DestroyGadgetModel(gadget);
+                continue;
+            }
+
             var gameObject = actor.value.GetGameObject();
             if (gameObject)
                 Object.Destroy(gameObject);
@@ -42,6 +49,7 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
                     actor.Rotation,
                     actor.ActorType,
                     actor.Scene,
+                    actor.IsPrePlaced,
                     out var spawnedActor))
                 continue;
 

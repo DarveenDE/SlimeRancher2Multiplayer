@@ -75,8 +75,16 @@ public sealed class ClientPacketManager
             out data, out var packetReliability, out var packetSequenceNumber))
             return;
 
+        if (data.Length == 0 || data[0] != packetType)
+        {
+            SrLogger.LogWarning(
+                $"Packet type mismatch from server: header={packetType}, payload={(data.Length > 0 ? data[0] : -1)}",
+                SrLogTarget.Both);
+            return;
+        }
+
         // Handle reliability ACK packets
-        if (packetType == 254)
+        if (packetType == (byte)PacketType.ReservedAck)
         {
             var ackPacket = new AckPacket();
             using (var reader = new PacketReader(data))
@@ -86,6 +94,18 @@ public sealed class ClientPacketManager
             }
             client.HandleAck(serverEp, ackPacket.PacketId, ackPacket.OriginalPacketType);
             return;
+        }
+
+        if (packetReliability == PacketReliability.ReliableOrdered)
+        {
+            switch (client.AcceptOrderedPacket(serverEp, packetSequenceNumber, packetType))
+            {
+                case OrderedPacketStatus.OutOfOrder:
+                    return;
+                case OrderedPacketStatus.Duplicate:
+                    SendAck(packetId, packetType);
+                    return;
+            }
         }
 
         // Sends ACK for reliable packets
@@ -101,12 +121,6 @@ public sealed class ClientPacketManager
         {
             SrLogger.LogPacketSize($"Duplicate packet ignored: {packetTypeKey} (packetId={packetId})", SrLogTarget.Both);
             return;
-        }
-
-        if (packetReliability == PacketReliability.ReliableOrdered)
-        {
-            if (!client.ShouldProcessOrderedPacket(serverEp, packetSequenceNumber, packetType))
-                return;
         }
 
         if (handlers.TryGetValue(packetType, out var handler))

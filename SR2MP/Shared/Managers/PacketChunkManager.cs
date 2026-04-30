@@ -34,6 +34,8 @@ public static class PacketChunkManager
     private static int nextPacketId = 1;
 
     private const int MaxChunkBytes = 500;
+    private const int MaxTotalChunks = 8192;
+    private const int MaxMergedPacketBytes = MaxChunkBytes * MaxTotalChunks;
     private const int CompressionThreshold = 30;
     private static readonly TimeSpan PacketTimeout = TimeSpan.FromSeconds(30);
 
@@ -49,9 +51,21 @@ public static class PacketChunkManager
         outReliability = reliability;
         outSequenceNumber = sequenceNumber;
 
+        if (totalChunks == 0 || totalChunks > MaxTotalChunks)
+        {
+            SrLogger.LogWarning($"Invalid chunk count: total={totalChunks}, max={MaxTotalChunks}", SrLogTarget.Both);
+            return false;
+        }
+
         if (chunkIndex >= totalChunks)
         {
             SrLogger.LogWarning($"Invalid chunk: index={chunkIndex} >= total={totalChunks}", SrLogTarget.Both);
+            return false;
+        }
+
+        if (data.Length > MaxChunkBytes)
+        {
+            SrLogger.LogWarning($"Invalid chunk size: {data.Length} bytes > {MaxChunkBytes}", SrLogTarget.Both);
             return false;
         }
 
@@ -74,6 +88,13 @@ public static class PacketChunkManager
             return false;
         }
 
+        if (packet.reliability != reliability || packet.sequenceNumber != sequenceNumber)
+        {
+            SrLogger.LogWarning($"Chunk metadata mismatch for {key}", SrLogTarget.Both);
+            IncompletePackets.TryRemove(key, out _);
+            return false;
+        }
+
         // Store chunks
         if (!packet.received[chunkIndex])
         {
@@ -90,7 +111,16 @@ public static class PacketChunkManager
         // Merge chunks
         int totalSize = 0;
         for (int i = 0; i < totalChunks; i++)
+        {
             totalSize += packet.chunks[i].Length;
+
+            if (totalSize > MaxMergedPacketBytes)
+            {
+                SrLogger.LogWarning($"Merged packet too large for {key}: {totalSize} bytes", SrLogTarget.Both);
+                IncompletePackets.TryRemove(key, out _);
+                return false;
+            }
+        }
 
         fullData = new byte[totalSize];
         int offset = 0;
@@ -106,9 +136,17 @@ public static class PacketChunkManager
         IncompletePackets.TryRemove(key, out _);
 
         // Decompress if compressed
-        if (fullData.Length > 0 && fullData[0] == 0xFF)
+        if (fullData.Length > 0 && fullData[0] == (byte)PacketType.ReservedDoNotUse)
         {
-            fullData = Decompress(fullData);
+            try
+            {
+                fullData = Decompress(fullData);
+            }
+            catch (Exception ex)
+            {
+                SrLogger.LogWarning($"Failed to decompress packet {key}: {ex.Message}", SrLogTarget.Both);
+                return false;
+            }
         }
 
         return true;
@@ -142,6 +180,9 @@ public static class PacketChunkManager
         }
 
         var chunkCount = (data.Length + MaxChunkBytes - 1) / MaxChunkBytes;
+        if (chunkCount > MaxTotalChunks)
+            throw new InvalidOperationException($"Packet too large to send: {data.Length} bytes ({chunkCount} chunks)");
+
         var result = new byte[chunkCount][];
 
         for (ushort index = 0; index < chunkCount; index++)
@@ -197,6 +238,14 @@ public static class PacketChunkManager
         }
     }
 
+    internal static void Clear()
+    {
+        IncompletePackets.Clear();
+        Interlocked.Exchange(ref nextPacketId, 1);
+        packetCounter = 0;
+        SrLogger.LogPacketSize("Packet chunk cache cleared", SrLogTarget.Both);
+    }
+
     private static byte[] Compress(byte[] data)
     {
         using var output = new MemoryStream();
@@ -214,6 +263,9 @@ public static class PacketChunkManager
 
     private static byte[] Decompress(byte[] data)
     {
+        if (data.Length < 2)
+            throw new InvalidDataException("Compressed packet is missing its packet type");
+
         using var input = new MemoryStream(data);
         input.ReadByte();
         var packetType = (byte)input.ReadByte();
@@ -223,7 +275,15 @@ public static class PacketChunkManager
 
         using (var gzip = new GZipStream(input, CompressionMode.Decompress))
         {
-            gzip.CopyTo(output);
+            var buffer = new byte[8192];
+            int read;
+            while ((read = gzip.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (output.Length + read > MaxMergedPacketBytes)
+                    throw new InvalidDataException($"Decompressed packet is larger than {MaxMergedPacketBytes} bytes");
+
+                output.Write(buffer, 0, read);
+            }
         }
 
         return output.ToArray();

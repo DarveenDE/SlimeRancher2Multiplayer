@@ -2,8 +2,11 @@
 using Il2CppTMPro;
 using MelonLoader;
 using MelonLoader.Utils;
+using SR2E.Buttons;
 using SR2E.Expansion;
+using SR2E.Managers;
 using SR2MP.Components.FX;
+using SR2MP.Components.Map;
 using SR2MP.Components.Player;
 using SR2MP.Components.Time;
 using SR2MP.Components.UI;
@@ -21,6 +24,7 @@ public sealed class Main : SR2EExpansionV3
     public static readonly Assembly Core = typeof(Main).Assembly;
 
     static MelonPreferences_Category preferences;
+    private CustomPauseMenuButton? multiplayerPauseMenuButton;
 
     public static string Username => preferences.GetEntry<string>("username").Value;
     public static string SavedConnectPort => preferences.GetEntry<string>("recent_port").Value;
@@ -90,6 +94,9 @@ public sealed class Main : SR2EExpansionV3
                 var ui = new GameObject("SR2MP_UI").AddComponent<MultiplayerUI>();
                 Object.DontDestroyOnLoad(ui.gameObject);
 
+                var mapMarkers = new GameObject("SR2MP_MapMarkers").AddComponent<RemotePlayerMapMarkers>();
+                Object.DontDestroyOnLoad(mapMarkers.gameObject);
+
                 Server.OnServerStarted += () => cheatsEnabled = AllowCheats;
 
                 Application.quitting += new Action(() =>
@@ -145,10 +152,14 @@ public sealed class Main : SR2EExpansionV3
         NetworkSceneManager.Initialize(gameContext);
 
         // Automatically inserts just by running the constructor.
-        //new CustomPauseMenuButton(
-        //    SR2ELanguageManger.AddTranslation("Multiplayer", "b.multiplayer", "UI"),
-        //    5,
-        //    () => SrLogger.LogMessage("Multiplayer menu open"));
+        multiplayerPauseMenuButton ??= new CustomPauseMenuButton(
+            SR2ELanguageManger.AddTranslation("Multiplayer", "b.sr2mp_multiplayer", "UI"),
+            5,
+            () =>
+            {
+                if (MultiplayerUI.Instance)
+                    MultiplayerUI.Instance.OpenHub();
+            });
     }
 
     internal static void SetConfigValue<T>(string key, T value)

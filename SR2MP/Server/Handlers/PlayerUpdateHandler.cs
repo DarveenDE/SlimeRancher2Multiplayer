@@ -13,13 +13,20 @@ public sealed class PlayerUpdateHandler : BasePacketHandler<PlayerUpdatePacket>
 
     protected override void Handle(PlayerUpdatePacket packet, IPEndPoint clientEp)
     {
-        // todo: This is temporary :3
-        if (packet.PlayerId == "HOST")
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
             return;
 
+        var playerId = client.PlayerId;
+
+        if (playerId == "HOST" || playerManager.GetPlayer(playerId) == null)
+            return;
+
+        packet.PlayerId = playerId;
+
         playerManager.UpdatePlayer(
-            packet.PlayerId,
+            playerId,
             packet.Position,
+            packet.SceneGroup,
             packet.Rotation,
             packet.HorizontalMovement,
             packet.ForwardMovement,

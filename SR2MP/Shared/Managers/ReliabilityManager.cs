@@ -4,6 +4,13 @@ using SR2MP.Packets.Utils;
 
 namespace SR2MP.Shared.Managers;
 
+public enum OrderedPacketStatus
+{
+    Accepted,
+    Duplicate,
+    OutOfOrder
+}
+
 public sealed class ReliabilityManager
 {
     private sealed class PendingPacket
@@ -22,7 +29,7 @@ public sealed class ReliabilityManager
     private readonly ConcurrentDictionary<string, PendingPacket> pendingPackets = new();
     private readonly ConcurrentDictionary<string, ushort> lastProcessedSequence = new();
 
-    private readonly ConcurrentDictionary<byte, int> sequenceNumbersByType = new();
+    private readonly ConcurrentDictionary<string, int> sequenceNumbersByDestinationAndType = new();
 
     private readonly Action<byte[], IPEndPoint> sendRawCallback;
 
@@ -62,7 +69,7 @@ public sealed class ReliabilityManager
         isRunning = false;
         pendingPackets.Clear();
         lastProcessedSequence.Clear();
-        sequenceNumbersByType.Clear();
+        sequenceNumbersByDestinationAndType.Clear();
 
         SrLogger.LogMessage("ReliabilityManager stopped", SrLogTarget.Both);
     }
@@ -102,8 +109,7 @@ public sealed class ReliabilityManager
             SrLogTarget.Both);
     }
 
-    // Checks if an ordered packet should be processed based on sequence number
-    public bool ShouldProcessOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
+    public OrderedPacketStatus AcceptOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
     {
         var key = GetSequenceKey(sender, packetType);
 
@@ -111,7 +117,7 @@ public sealed class ReliabilityManager
         {
             // First packet from this sender for this type
             lastProcessedSequence[key] = sequenceNumber;
-            return true;
+            return OrderedPacketStatus.Accepted;
         }
 
         // Checks if this is the next expected sequence number
@@ -120,24 +126,43 @@ public sealed class ReliabilityManager
         if (sequenceNumber == expectedSequence)
         {
             lastProcessedSequence[key] = sequenceNumber;
-            return true;
+            return OrderedPacketStatus.Accepted;
         }
 
         if (IsSequenceNewer(sequenceNumber, lastSequence))
         {
             SrLogger.LogWarning(
-                $"Out-of-order packet dropped: expected seq={expectedSequence}, got seq={sequenceNumber}, type={packetType}",
+                $"Out-of-order packet deferred without ACK: expected seq={expectedSequence}, got seq={sequenceNumber}, type={packetType}",
                 SrLogTarget.Both);
+            return OrderedPacketStatus.OutOfOrder;
         }
 
-        return false;
+        return OrderedPacketStatus.Duplicate;
+    }
+
+    // Checks if an ordered packet should be processed based on sequence number
+    public bool ShouldProcessOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
+    {
+        return AcceptOrderedPacket(sender, sequenceNumber, packetType) == OrderedPacketStatus.Accepted;
     }
 
     // Gets the next sequence number for ReliableOrdered packets
+    public ushort GetNextSequenceNumber(IPEndPoint destination, byte packetType)
+    {
+        var key = GetSequenceKey(destination, packetType);
+        var seq = sequenceNumbersByDestinationAndType.AddOrUpdate(
+            key,
+            1,
+            (_, current) => (current >= ushort.MaxValue) ? 1 : current + 1
+        );
+
+        return (ushort)seq;
+    }
+
     public ushort GetNextSequenceNumber(byte packetType)
     {
-        var seq = sequenceNumbersByType.AddOrUpdate(
-            packetType,
+        var seq = sequenceNumbersByDestinationAndType.AddOrUpdate(
+            $"global_{packetType}",
             1,
             (_, current) => (current >= ushort.MaxValue) ? 1 : current + 1
         );
@@ -221,4 +246,9 @@ public sealed class ReliabilityManager
     }
 
     public int GetPendingPacketCount() => pendingPackets.Count;
+
+    public bool IsPacketPending(IPEndPoint destination, ushort packetId)
+    {
+        return pendingPackets.ContainsKey(GetPacketKey(destination, packetId));
+    }
 }

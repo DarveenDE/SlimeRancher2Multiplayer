@@ -33,33 +33,30 @@ public sealed class PlotsLoadHandler : BaseClientPacketHandler<InitialLandPlotsP
 
             switch (plot.Data)
             {
-                case InitialLandPlotsPacket.GardenData { Crop: 9 }:
-                {
-                    model.resourceGrowerDefinition = null;
-                    if (!model.gameObj)
-                        continue;
-                    var gardenPlot = model.gameObj.GetComponentInChildren<LandPlot>();
-                    gardenPlot.DestroyAttached();
-                    break;
-                }
                 case InitialLandPlotsPacket.GardenData garden:
-                {
-                    var actor = actorManager.ActorTypes[garden.Crop];
-                    model.resourceGrowerDefinition =
-                        GameContext.Instance.AutoSaveDirector._saveReferenceTranslation._resourceGrowerTranslation
-                           .RawLookupDictionary._entries.FirstOrDefault(x =>
-                                x.value._primaryResourceType == actor)!.value;
-
-                    if (!model.gameObj)
-                        continue;
-                    var gardenCatcher = model.gameObj.GetComponentInChildren<GardenCatcher>();
-
-                    if (gardenCatcher.CanAccept(actor))
-                        gardenCatcher.Plant(actor, true);
+                    handlingPacket = true;
+                    try
+                    {
+                        GardenPlotSyncManager.ApplyRemoteState(plot.ID, garden.HasCrop, garden.Crop, "initial garden plot");
+                    }
+                    finally { handlingPacket = false; }
                     break;
-                }
                 case InitialLandPlotsPacket.SiloData silo: break; // todo
             }
+
+            handlingPacket = true;
+            try
+            {
+                LandPlotAmmoSyncManager.ApplyAmmoSets(model, plot.AmmoSets, plot.ID);
+            }
+            finally { handlingPacket = false; }
+
+            handlingPacket = true;
+            try
+            {
+                LandPlotFeederSyncManager.ApplyState(plot.ID, plot.FeederState, "initial feeder state");
+            }
+            finally { handlingPacket = false; }
         }
     }
 }

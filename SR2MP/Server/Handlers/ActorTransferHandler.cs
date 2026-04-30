@@ -14,6 +14,11 @@ public sealed class ActorTransferHandler : BasePacketHandler<ActorTransferPacket
 
     protected override void Handle(ActorTransferPacket packet, IPEndPoint clientEp)
     {
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
+        packet.OwnerPlayer = client.PlayerId;
+
         if (!actorManager.Actors.TryGetValue(packet.ActorId.Value, out var actor))
             return;
 

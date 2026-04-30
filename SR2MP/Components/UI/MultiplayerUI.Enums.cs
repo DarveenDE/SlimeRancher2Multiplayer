@@ -31,4 +31,12 @@ public sealed partial class MultiplayerUI
         SyncState,
         DiscordSupport,
     }
+
+    private enum MultiplayerTab : byte
+    {
+        Join,
+        Host,
+        Players,
+        Settings,
+    }
 }

@@ -1,5 +1,5 @@
-﻿/*using HarmonyLib;
-using SR2MP.Packets.Landplot;
+using HarmonyLib;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Patches.Plots;
 
@@ -8,19 +8,9 @@ public static class OnDestroyCrop
 {
     public static void Postfix(LandPlot __instance)
     {
-        if (handlingPacket) return;
-
-        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
-
         if (!__instance)
             return;
 
-        var packet = new GardenPlantPacket()
-        {
-            ID = __instance.GetComponentInParent<LandPlotLocation>()._id,
-            ActorType = 9
-        };
-
-        // Main.SendToAllOrServer(packet);
+        GardenPlotSyncManager.QueueLocalState(__instance.GetComponentInParent<LandPlotLocation>());
     }
-}*/
+}

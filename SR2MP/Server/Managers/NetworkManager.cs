@@ -96,12 +96,12 @@ public sealed class NetworkManager
         SrLogger.LogMessage("Server ReceiveLoop stopped", SrLogTarget.Both);
     }
 
-    public void Send(byte[] data, IPEndPoint endPoint, PacketReliability? reliability = null)
+    public ushort? Send(byte[] data, IPEndPoint endPoint, PacketReliability? reliability = null)
     {
         if (udpClient == null || !isRunning)
         {
             SrLogger.LogWarning("Cannot send: Server not running!", SrLogTarget.Both);
-            return;
+            return null;
         }
 
         try
@@ -111,7 +111,7 @@ public sealed class NetworkManager
 
             if (packetReliability == PacketReliability.ReliableOrdered)
             {
-                sequenceNumber = reliabilityManager?.GetNextSequenceNumber(data[0]) ?? 0;
+                sequenceNumber = reliabilityManager?.GetNextSequenceNumber(endPoint, data[0]) ?? 0;
             }
 
             var chunks = PacketChunkManager.SplitPacket(data, packetReliability, sequenceNumber, out ushort packetId);
@@ -125,10 +125,13 @@ public sealed class NetworkManager
             {
                 SendRaw(chunk, endPoint);
             }
+
+            return packetId;
         }
         catch (Exception ex)
         {
             SrLogger.LogError($"Send failed to {endPoint}: {ex}", SrLogTarget.Both);
+            return null;
         }
     }
 
@@ -144,17 +147,34 @@ public sealed class NetworkManager
         try
         {
             PacketReliability finalReliability = reliability ?? PacketReliability.Unreliable;
-            ushort sequenceNumber = 0;
+            var endpointList = endpoints as IList<IPEndPoint> ?? endpoints.ToList();
+            if (endpointList.Count == 0)
+                return;
 
             if (finalReliability == PacketReliability.ReliableOrdered)
             {
-                sequenceNumber = reliabilityManager?.GetNextSequenceNumber(data[0]) ?? 0;
+                foreach (var endpoint in endpointList)
+                {
+                    ushort orderedSequence = reliabilityManager?.GetNextSequenceNumber(endpoint, data[0]) ?? 0;
+                    var orderedChunks = PacketChunkManager.SplitPacket(data, finalReliability, orderedSequence, out ushort orderedPacketId);
+
+                    reliabilityManager?.TrackPacket(orderedChunks, endpoint, orderedPacketId, data[0], finalReliability, orderedSequence);
+
+                    foreach (var chunk in orderedChunks)
+                    {
+                        SendRaw(chunk, endpoint);
+                    }
+                }
+
+                return;
             }
+
+            ushort sequenceNumber = 0;
 
             // Split once, send to many
             var chunks = PacketChunkManager.SplitPacket(data, finalReliability, sequenceNumber, out ushort packetId);
 
-            foreach (var endpoint in endpoints)
+            foreach (var endpoint in endpointList)
             {
                 // Track for reliability if needed
                 if (finalReliability != PacketReliability.Unreliable)
@@ -186,6 +206,11 @@ public sealed class NetworkManager
     }
 
     // Check if ordered packet should be processed
+    public OrderedPacketStatus AcceptOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
+    {
+        return reliabilityManager?.AcceptOrderedPacket(sender, sequenceNumber, packetType) ?? OrderedPacketStatus.Accepted;
+    }
+
     public bool ShouldProcessOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
     {
         return reliabilityManager?.ShouldProcessOrderedPacket(sender, sequenceNumber, packetType) ?? true;
@@ -217,4 +242,9 @@ public sealed class NetworkManager
     }
 
     public int GetPendingReliablePackets() => reliabilityManager?.GetPendingPacketCount() ?? 0;
+
+    public bool IsReliablePacketPending(IPEndPoint destination, ushort packetId)
+    {
+        return reliabilityManager?.IsPacketPending(destination, packetId) ?? false;
+    }
 }

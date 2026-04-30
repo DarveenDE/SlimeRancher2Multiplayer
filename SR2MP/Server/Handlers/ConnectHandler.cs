@@ -27,6 +27,7 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             $"Connect request from {clientEp} with PlayerId: {packet.PlayerId}");
 
         clientManager.AddClient(clientEp, packet.PlayerId);
+        var pendingInitialPackets = new List<ushort>();
 
         var money = SceneContext.Instance.PlayerState.GetCurrency(GameContext.Instance.LookupDirector._currencyList[0]
             .Cast<ICurrency>());
@@ -43,24 +44,27 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             AllowCheats = Main.AllowCheats
         };
 
-        Main.Server.SendToClient(ackPacket, clientEp);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(ackPacket, clientEp));
 
-        SendGordosPacket(clientEp);
-        SendSwitchesPacket(clientEp);
-        SendPlotsPacket(clientEp);
-        SendActorsPacket(clientEp, PlayerIdGenerator.GetPlayerIDNumber(packet.PlayerId));
-        SendWeatherPacket(clientEp);
-        SendUpgradesPacket(clientEp);
-        SendPediaPacket(clientEp);
-        SendMapPacket(clientEp);
-        SendAccessDoorsPacket(clientEp);
-        SendPricesPacket(clientEp);
+        SendGordosPacket(clientEp, pendingInitialPackets);
+        SendSwitchesPacket(clientEp, pendingInitialPackets);
+        SendPuzzleStatesPacket(clientEp, pendingInitialPackets);
+        SendPlotsPacket(clientEp, pendingInitialPackets);
+        SendActorsPacket(clientEp, PlayerIdGenerator.GetPlayerIDNumber(packet.PlayerId), pendingInitialPackets);
+        SendUpgradesPacket(clientEp, pendingInitialPackets);
+        SendRefineryItemsPacket(clientEp, pendingInitialPackets);
+        SendPediaPacket(clientEp, pendingInitialPackets);
+        SendMapPacket(clientEp, pendingInitialPackets);
+        SendAccessDoorsPacket(clientEp, pendingInitialPackets);
+        SendPricesPacket(clientEp, pendingInitialPackets);
 
-        SrLogger.LogMessage($"Player {packet.PlayerId} successfully connected",
-            $"Player {packet.PlayerId} successfully connected from {clientEp}");
+        MelonCoroutines.Start(SendWeatherAndCompleteInitialSync(clientEp, pendingInitialPackets));
+
+        SrLogger.LogMessage($"Initial sync started for player {packet.PlayerId}",
+            $"Initial sync started for player {packet.PlayerId} from {clientEp}");
     }
 
-    private static void SendUpgradesPacket(IPEndPoint client)
+    private static void SendUpgradesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var upgrades = new Dictionary<byte, sbyte>();
 
@@ -73,28 +77,63 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         {
             Upgrades = upgrades,
         };
-        Main.Server.SendToClient(upgradesPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(upgradesPacket, client));
     }
 
-    private static void SendWeatherPacket(IPEndPoint client)
+    private static void SendRefineryItemsPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
+    {
+        var packet = new RefineryItemCountsPacket
+        {
+            Items = RefinerySyncManager.CreateSnapshot(includeZeroCounts: true),
+        };
+
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(packet, client));
+    }
+
+    private static System.Collections.IEnumerator SendWeatherAndCompleteInitialSync(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var weatherRegistry = Resources.FindObjectsOfTypeAll<WeatherRegistry>().FirstOrDefault();
-        if (weatherRegistry == null || weatherRegistry._model == null)
+        if (weatherRegistry != null && weatherRegistry._model != null)
+        {
+            bool weatherPacketCreated = false;
+            MelonCoroutines.Start(
+                WeatherPacket.CreateFromModel(
+                    weatherRegistry._model,
+                    PacketType.InitialWeather,
+                    packet =>
+                    {
+                        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(packet, client));
+                        weatherPacketCreated = true;
+                    }
+                )
+            );
+
+            while (!weatherPacketCreated)
+                yield return null;
+        }
+        else
         {
             SrLogger.LogError("WeatherRegistry or model not found!", SrLogTarget.Both);
-            return;
         }
 
-        MelonCoroutines.Start(
-            WeatherPacket.CreateFromModel(
-                weatherRegistry._model,
-                PacketType.InitialWeather,
-                packet => Main.Server.SendToClient(packet, client)
-            )
-        );
+        var timeoutAt = UnityEngine.Time.realtimeSinceStartup + 12f;
+        while (Main.Server.AreReliablePacketsPending(client, pendingInitialPackets)
+               && UnityEngine.Time.realtimeSinceStartup < timeoutAt)
+        {
+            yield return null;
+        }
+
+        if (Main.Server.AreReliablePacketsPending(client, pendingInitialPackets))
+        {
+            SrLogger.LogWarning(
+                $"Initial sync for {client} timed out waiting for {pendingInitialPackets.Count} reliable packet ACK(s); sending completion anyway",
+                SrLogTarget.Both);
+        }
+
+        Main.Server.SendToClient(new InitialSyncCompletePacket(), client);
     }
 
-    private static void SendPediaPacket(IPEndPoint client)
+    private static void SendPediaPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var unlocked = SceneContext.Instance.PediaDirector._pediaModel.unlocked;
 
@@ -108,10 +147,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             Entries = unlockedIDs
         };
 
-        Main.Server.SendToClient(pediasPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(pediasPacket, client));
     }
 
-    private static void SendMapPacket(IPEndPoint client)
+    private static void SendMapPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         if (!SceneContext.Instance.eventDirector._model.table.TryGetValue(MapEventKey, out var maps))
         {
@@ -129,10 +168,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             UnlockedNodes = mapsList
         };
 
-        Main.Server.SendToClient(mapPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(mapPacket, client));
     }
 
-    private static void SendAccessDoorsPacket(IPEndPoint client)
+    private static void SendAccessDoorsPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var doorsList = new List<InitialAccessDoorsPacket.Door>();
 
@@ -150,10 +189,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             Doors = doorsList
         };
 
-        Main.Server.SendToClient(accessDoorsPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(accessDoorsPacket, client));
     }
 
-    private static void SendActorsPacket(IPEndPoint client, ushort playerIndex)
+    private static void SendActorsPacket(IPEndPoint client, ushort playerIndex, List<ushort> pendingInitialPackets)
     {
         var actorsList = new List<InitialActorsPacket.Actor>();
 
@@ -161,28 +200,60 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         {
             var actor = actorKeyValuePair.Value;
             var model = actor.TryCast<ActorModel>();
-            var rotation = model?.lastRotation ?? Quaternion.identity;
+            var gadgetModel = actor.TryCast<GadgetModel>();
+            var rotation = model?.lastRotation ?? gadgetModel?.GetRot() ?? Quaternion.identity;
+            var position = gadgetModel?.GetPos() ?? actor.lastPosition;
             var id = actor.actorId.Value;
             actorsList.Add(new InitialActorsPacket.Actor
             {
                 ActorId = id,
                 ActorType = NetworkActorManager.GetPersistentID(actor.ident),
-                Position = actor.lastPosition,
+                Position = position,
                 Rotation = rotation,
-                Scene = NetworkSceneManager.GetPersistentID(actor.sceneGroup)
+                Scene = NetworkSceneManager.GetPersistentID(actor.sceneGroup),
+                IsPrePlaced = gadgetModel?.IsPrePlaced ?? false
             });
         }
 
         var actorsPacket = new InitialActorsPacket
         {
-            StartingActorID = (uint)NetworkActorManager.GetHighestActorIdInRange(playerIndex * 10000, (playerIndex * 10000) + 10000),
+            StartingActorID = (uint)NetworkActorManager.GetNextActorIdInRange(playerIndex * 10000, (playerIndex * 10000) + 10000),
             Actors = actorsList
         };
 
-        Main.Server.SendToClient(actorsPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(actorsPacket, client));
     }
 
-    private static void SendSwitchesPacket(IPEndPoint client)
+    private static void SendPuzzleStatesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
+    {
+        var slots = new List<InitialPuzzleStatesPacket.PuzzleSlot>();
+        foreach (var slot in SceneContext.Instance.GameModel.slots)
+        {
+            slots.Add(new InitialPuzzleStatesPacket.PuzzleSlot
+            {
+                ID = slot.Key,
+                Filled = slot.Value.filled,
+            });
+        }
+
+        var depositors = new List<InitialPuzzleStatesPacket.PlortDepositor>();
+        foreach (var depositor in SceneContext.Instance.GameModel.depositors)
+        {
+            depositors.Add(new InitialPuzzleStatesPacket.PlortDepositor
+            {
+                ID = depositor.Key,
+                AmountDeposited = depositor.Value.AmountDeposited,
+            });
+        }
+
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(new InitialPuzzleStatesPacket
+        {
+            Slots = slots,
+            Depositors = depositors,
+        }, client));
+    }
+
+    private static void SendSwitchesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var switchesList = new List<InitialSwitchesPacket.Switch>();
 
@@ -200,10 +271,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             Switches = switchesList
         };
 
-        Main.Server.SendToClient(switchesPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(switchesPacket, client));
     }
 
-    private static void SendGordosPacket(IPEndPoint client)
+    private static void SendGordosPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var gordosList = new List<InitialGordosPacket.Gordo>();
 
@@ -229,10 +300,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             Gordos = gordosList
         };
 
-        Main.Server.SendToClient(gordosPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(gordosPacket, client));
     }
 
-    private static void SendPlotsPacket(IPEndPoint client)
+    private static void SendPlotsPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var plotsList = new List<InitialLandPlotsPacket.BasePlot>();
 
@@ -245,7 +316,8 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             {
                 LandPlot.Id.GARDEN => new InitialLandPlotsPacket.GardenData
                 {
-                    Crop = plot.resourceGrowerDefinition == null ? 9 : NetworkActorManager.GetPersistentID(plot.resourceGrowerDefinition?._primaryResourceType!)
+                    HasCrop = GardenPlotSyncManager.TryGetCurrentCropType(plot, out var crop),
+                    Crop = crop
                 },
                 LandPlot.Id.SILO => new InitialLandPlotsPacket.SiloData
                     {},
@@ -257,6 +329,8 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
                 ID = id,
                 Type = plot.typeId,
                 Upgrades = plot.upgrades,
+                AmmoSets = LandPlotAmmoSyncManager.CreateAmmoSets(plot),
+                FeederState = LandPlotFeederSyncManager.CreateState(plot),
                 Data = data
             });
         }
@@ -266,16 +340,22 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             Plots = plotsList
         };
 
-        Main.Server.SendToClient(plotsPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(plotsPacket, client));
     }
 
-    private static void SendPricesPacket(IPEndPoint client)
+    private static void SendPricesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var pricesPacket = new MarketPricePacket
         {
             Prices = MarketPricesArray!
         };
 
-        Main.Server.SendToClient(pricesPacket, client);
+        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(pricesPacket, client));
+    }
+
+    private static void TrackPendingPacket(List<ushort> pendingInitialPackets, ushort? packetId)
+    {
+        if (packetId.HasValue)
+            pendingInitialPackets.Add(packetId.Value);
     }
 }

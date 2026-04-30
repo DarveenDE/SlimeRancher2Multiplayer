@@ -14,6 +14,7 @@ public sealed partial class MultiplayerUI : MonoBehaviour
     private void Awake()
     {
         firstTime = Main.SetupUI;
+        multiplayerUIHidden = !firstTime;
         usernameInput = Main.Username;
         allowCheatsInput = Main.AllowCheats;
         ipInput = Main.SavedConnectIP;
@@ -43,9 +44,6 @@ public sealed partial class MultiplayerUI : MonoBehaviour
             UpdateChatVisibility();
         }
 
-        previousLayoutRect = new Rect(6, 16, WindowWidth, 0);
-        previousLayoutHorizontalIndex = 0;
-
         if (!MenuEUtil.isAnyMenuOpen)
         {
             didUnfocus = false;
@@ -64,7 +62,9 @@ public sealed partial class MultiplayerUI : MonoBehaviour
     {
         if (state == MenuState.Hidden) return;
 
-        GUI.Box(new Rect(6, 6, WindowWidth, WindowHeight), "SR2MP (F4 to toggle)");
+        var windowRect = CalculateWindowRect();
+        GUI.Box(windowRect, "SR2MP Multiplayer");
+        ResetWindowLayout(windowRect);
 
         switch (state)
         {
@@ -92,5 +92,15 @@ public sealed partial class MultiplayerUI : MonoBehaviour
         }
 
         AdjustInputValues();
+    }
+
+    private static Rect CalculateWindowRect()
+    {
+        float width = Mathf.Min(WindowWidth, Mathf.Max(260f, Screen.width - 12f));
+        float height = Mathf.Min(WindowHeight, Mathf.Max(260f, Screen.height - 12f));
+        float x = Mathf.Max(6f, (Screen.width - width) * 0.5f);
+        float y = Mathf.Max(6f, (Screen.height - height) * 0.5f);
+
+        return new Rect(x, y, width, height);
     }
 }

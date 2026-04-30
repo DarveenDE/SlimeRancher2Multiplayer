@@ -2,7 +2,6 @@ using Il2CppMonomiPark.SlimeRancher.Economy;
 using SR2MP.Shared.Managers;
 using SR2MP.Components.Player;
 using SR2MP.Packets.Loading;
-using SR2MP.Packets.Player;
 using SR2MP.Packets.Utils;
 
 namespace SR2MP.Client.Handlers;
@@ -15,19 +14,7 @@ public sealed class ConnectAckHandler : BaseClientPacketHandler<ConnectAckPacket
 
     protected override void Handle(ConnectAckPacket packet)
     {
-        var joinPacket = new PlayerJoinPacket
-        {
-            Type = PacketType.PlayerJoin,
-            PlayerId = packet.PlayerId,
-            PlayerName = Main.Username
-        };
-
-        SendPacket(joinPacket);
-
-        Client.StartHeartbeat();
-        Client.NotifyConnected();
-
-        SrLogger.LogMessage($"Connection acknowledged by server! (PlayerId: {packet.PlayerId})",
+        SrLogger.LogMessage($"Connection acknowledged by server; waiting for initial sync (PlayerId: {packet.PlayerId})",
             SrLogTarget.Both);
 
         SceneContext.Instance.PlayerState._model.SetCurrency(GameContext.Instance.LookupDirector._currencyList[0].Cast<ICurrency>(), packet.Money);

@@ -16,17 +16,16 @@ public sealed class ChatMessageHandler : BasePacketHandler<ChatMessagePacket>
 
     protected override void Handle(ChatMessagePacket packet, IPEndPoint clientEp)
     {
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
+        var player = playerManager.GetPlayer(client.PlayerId);
+        packet.Username = player?.Username ?? client.PlayerId;
+
         SrLogger.LogMessage($"Chat message from {packet.Username}: {packet.Message}",
             $"Chat message from {clientEp} ({packet.Username}): {packet.Message}");
 
-        if (packet.Username == "SYSTEM")
-        {
-            MultiplayerUI.Instance.RegisterSystemMessage(packet.Message, packet.MessageID, packet.MessageType);
-        }
-        else
-        {
-            MultiplayerUI.Instance.RegisterChatMessage(packet.Message, packet.Username, packet.MessageID);
-        }
+        MultiplayerUI.Instance.RegisterChatMessage(packet.Message, packet.Username, packet.MessageID);
 
         Main.Server.SendToAllExcept(packet, clientEp);
     }

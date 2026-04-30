@@ -34,6 +34,7 @@ public static class PacketDeduplication
     public static void Clear()
     {
         ProcessedPackets.Clear();
+        processCounter = 0;
         SrLogger.LogPacketSize("Packet deduplication cache cleared", SrLogTarget.Both);
         Cleanup();
     }

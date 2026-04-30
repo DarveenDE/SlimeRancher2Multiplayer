@@ -5,6 +5,7 @@ using SR2MP.Packets.Player;
 using SR2MP.Server.Managers;
 using SR2MP.Packets.Utils;
 using SR2MP.Server.Models;
+using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
 
 namespace SR2MP.Server;
@@ -52,6 +53,10 @@ public sealed class Server
 
         try
         {
+            PacketDeduplication.Clear();
+            PacketChunkManager.Clear();
+            MainThreadDispatcher.Clear();
+
             packetManager.RegisterHandlers();
             Application.quitting += new Action(Close);
             networkManager.Start(port, enableIPv6);
@@ -159,9 +164,11 @@ public sealed class Server
             }
 
             PacketDeduplication.Clear();
+            PacketChunkManager.Clear();
             clientManager.Clear();
             playerManager.Clear();
             networkManager.Stop();
+            MainThreadDispatcher.Clear();
 
             SrLogger.LogMessage("Server closed", SrLogTarget.Both);
         }
@@ -171,16 +178,16 @@ public sealed class Server
         }
     }
 
-    public void SendToClient<T>(T packet, IPEndPoint endPoint) where T : IPacket
+    public ushort? SendToClient<T>(T packet, IPEndPoint endPoint) where T : IPacket
     {
         using var writer = new PacketWriter();
         writer.WritePacket(packet);
-        networkManager.Send(writer.ToArray(), endPoint, packet.Reliability);
+        return networkManager.Send(writer.ToArray(), endPoint, packet.Reliability);
     }
 
-    public void SendToClient<T>(T packet, ClientInfo client) where T : IPacket
+    public ushort? SendToClient<T>(T packet, ClientInfo client) where T : IPacket
     {
-        SendToClient(packet, client.EndPoint);
+        return SendToClient(packet, client.EndPoint);
     }
 
     public void SendToAll<T>(T packet) where T : IPacket
@@ -189,8 +196,16 @@ public sealed class Server
         writer.WritePacket(packet);
         byte[] data = writer.ToArray();
 
-        var endpoints = clientManager.GetAllClients().Select(c => c.EndPoint);
-        networkManager.Broadcast(data, endpoints, packet.Reliability);
+        var readyEndpoints = new List<IPEndPoint>();
+        foreach (var client in clientManager.GetAllClients())
+        {
+            if (ShouldQueueForInitialSync(client, data, packet.Reliability))
+                continue;
+
+            readyEndpoints.Add(client.EndPoint);
+        }
+
+        networkManager.Broadcast(data, readyEndpoints, packet.Reliability);
     }
 
     public void SendToAllExcept<T>(T packet, string excludedClientInfo) where T : IPacket
@@ -203,7 +218,8 @@ public sealed class Server
         {
             if (client.GetClientInfo() != excludedClientInfo)
             {
-                networkManager.Send(data, client.EndPoint, packet.Reliability);
+                if (!ShouldQueueForInitialSync(client, data, packet.Reliability))
+                    networkManager.Send(data, client.EndPoint, packet.Reliability);
             }
         }
     }
@@ -215,4 +231,45 @@ public sealed class Server
     }
 
     public int GetPendingReliablePackets() => networkManager.GetPendingReliablePackets();
+
+    public bool AreReliablePacketsPending(IPEndPoint destination, IEnumerable<ushort> packetIds)
+    {
+        foreach (var packetId in packetIds)
+        {
+            if (networkManager.IsReliablePacketPending(destination, packetId))
+                return true;
+        }
+
+        return false;
+    }
+
+    public void CompleteInitialSync(IPEndPoint endPoint)
+    {
+        if (!clientManager.TryGetClient(endPoint, out var client) || client == null)
+            return;
+
+        var queuedPackets = client.MarkInitialSyncComplete();
+        SrLogger.LogMessage(
+            $"Initial sync complete for {client.PlayerId}; flushing {queuedPackets.Count} queued packet(s)",
+            SrLogTarget.Both);
+
+        foreach (var packet in queuedPackets)
+        {
+            networkManager.Send(packet.Data, client.EndPoint, packet.Reliability);
+        }
+    }
+
+    private static bool ShouldQueueForInitialSync(ClientInfo client, byte[] data, PacketReliability reliability)
+    {
+        if (client.InitialSyncComplete)
+            return false;
+
+        if (data.Length == 0 || data[0] == (byte)PacketType.Close)
+            return false;
+
+        if (reliability == PacketReliability.Unreliable)
+            return true;
+
+        return client.QueueUntilInitialSyncComplete(data, reliability);
+    }
 }

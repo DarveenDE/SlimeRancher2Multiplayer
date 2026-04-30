@@ -1,5 +1,4 @@
-/*using HarmonyLib;
-using SR2MP.Packets.Landplot;
+using HarmonyLib;
 using SR2MP.Shared.Managers;
 
 namespace SR2MP.Patches.Plots;
@@ -7,17 +6,11 @@ namespace SR2MP.Patches.Plots;
 [HarmonyPatch(typeof(GardenCatcher), nameof(GardenCatcher.Plant))]
 public static class PlantGarden
 {
-    public static void Postfix(GardenCatcher __instance, IdentifiableType cropId)
+    public static void Postfix(GardenCatcher __instance, GameObject __result)
     {
-        if (handlingPacket)
+        if (!__result)
             return;
 
-        var packet = new GardenPlantPacket()
-        {
-            ActorType = NetworkActorManager.GetPersistentID(cropId),
-            ID = __instance.GetComponentInParent<LandPlotLocation>()._id
-        };
-        
-        // Main.SendToAllOrServer(packet);
+        GardenPlotSyncManager.QueueLocalState(__instance.GetComponentInParent<LandPlotLocation>());
     }
-}*/
+}

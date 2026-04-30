@@ -212,7 +212,7 @@ public sealed partial class MultiplayerUI
 
     private void SetChatFocus(bool focus)
     {
-        GUI.FocusControl(focus ? ChatInputName : null);
+        focusedTextInput = focus ? ChatInputName : string.Empty;
 
         if (focus) shouldFocusChat = false;
         else shouldUnfocusChat = false;
@@ -231,9 +231,8 @@ public sealed partial class MultiplayerUI
 
     private void UpdateChatFocusState()
     {
-        string currentChatFocus = GUI.GetNameOfFocusedControl();
         bool wasPreviouslyFocused = isChatFocused;
-        isChatFocused = currentChatFocus == ChatInputName;
+        isChatFocused = focusedTextInput == ChatInputName;
 
         if (isChatFocused && !wasPreviouslyFocused)
         {
@@ -274,11 +273,15 @@ public sealed partial class MultiplayerUI
             RenderChatMessage(message);
         }
 
-        GUI.SetNextControlName(ChatInputName);
-
         if (string.IsNullOrEmpty(chatInput) && !isChatFocused)
         {
-            GUIStyle placeholderStyle = new(GUI.skin.textField);
+            GUIStyle placeholderStyle = new();
+            placeholderStyle.font = GUI.skin.textField.font;
+            placeholderStyle.fontSize = GUI.skin.textField.fontSize;
+            placeholderStyle.fontStyle = GUI.skin.textField.fontStyle;
+            placeholderStyle.alignment = GUI.skin.textField.alignment;
+            placeholderStyle.padding = GUI.skin.textField.padding;
+            placeholderStyle.margin = GUI.skin.textField.margin;
             placeholderStyle.normal.textColor = Color.gray;
 
             GUI.Label(
@@ -291,13 +294,14 @@ public sealed partial class MultiplayerUI
             );
         }
 
-        chatInput = GUI.TextField(
+        chatInput = DrawTextInput(
             new Rect(6 + HorizontalSpacing,
                      chatY + ChatHeight - InputHeight - 5,
                      ChatWidth - (HorizontalSpacing * 2),
                      InputHeight),
             chatInput,
-            MaxChatMessageLength
+            MaxChatMessageLength,
+            ChatInputName
         );
 
         UpdateChatFocusState();

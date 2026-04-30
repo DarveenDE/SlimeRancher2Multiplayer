@@ -21,6 +21,7 @@ public sealed class GordosLoadHandler : BaseClientPacketHandler<InitialGordosPac
             {
                 gordoModel.GordoEatenCount = gordo.EatenCount;
                 gordoModel.targetCount = gordo.RequiredEatCount;
+                gordoModel.SetSeen(gordo.WasSeen);
 
                 if (!gordoModel.gameObj)
                     continue;
@@ -36,7 +37,7 @@ public sealed class GordosLoadHandler : BaseClientPacketHandler<InitialGordosPac
                 {
                     fashions = new CppCollections.List<IdentifiableType>(0),
                     gordoEatCount = gordo.EatenCount,
-                    gordoSeen = false,
+                    gordoSeen = gordo.WasSeen,
                     identifiableType = actorManager.ActorTypes[gordo.GordoType],
                     gameObj = null,
                     targetCount = gordo.RequiredEatCount,

@@ -18,6 +18,9 @@ public static class NetworkSceneManager
 
     public static SceneGroup GetSceneGroup(int sceneGroupId) => allSceneGroups[sceneGroupId];
 
+    public static bool TryGetSceneGroup(int sceneGroupId, out SceneGroup? sceneGroup)
+        => allSceneGroups.TryGetValue(sceneGroupId, out sceneGroup);
+
     public static int GetPersistentID(SceneGroup sceneGroup)
         => GameContext.Instance.AutoSaveDirector._saveReferenceTranslation.GetPersistenceId(sceneGroup);
 }

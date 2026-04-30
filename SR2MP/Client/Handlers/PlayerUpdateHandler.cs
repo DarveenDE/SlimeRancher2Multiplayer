@@ -19,6 +19,7 @@ public sealed class PlayerUpdateHandler : BaseClientPacketHandler<PlayerUpdatePa
         PlayerManager.UpdatePlayer(
             packet.PlayerId,
             packet.Position,
+            packet.SceneGroup,
             packet.Rotation,
             packet.HorizontalMovement,
             packet.ForwardMovement,
