@@ -85,6 +85,41 @@ Puzzle slot / plort statue update 2026-05-01:
 - `PuzzleStateSyncManager` now uses the packet echo guard when applying visible slot/depositor changes and logs when live updates only reach the model because the visible target GameObject is missing.
 - Release build verified after this hardening and copied to both host/client `Mods/SR2MP.dll` paths at 15:50.
 
+Main-menu host/join save selection update 2026-05-01:
+
+- Bug found: the SR2MP `Select Save` buttons only armed the pending host/join launch and closed the custom overlay. They did not actively open SR2's native Load Game screen, so the player landed back in the main menu.
+- Implemented active native Load Game opening after host/join save selection is armed by invoking SR2's original main-menu Load Game behavior on the next UI tick.
+- The launcher retries for a short window if the main-menu model list is not ready yet, and logs a warning if SR2MP cannot find the native Load Game behavior. In that fallback case the save selection remains armed, so manually opening Load Game still works.
+- Hardened the save-selection hook so the first top-level Load Game action without a concrete save summary is ignored instead of being treated as an invalid selected save.
+- Release build verified after this fix. The host `Mods/SR2MP.dll` was replaced at 16:17; after the client game was closed, `S:\Mods\SR2MP.dll` was also replaced with the same 16:17 build.
+
+Hotfix after 16:22 retest:
+
+- The FPS drop was caused by the new puzzle-slot/plort-depositor missing-id diagnostics logging thousands of warnings per second on both host and client. The warnings are now rate-limited to one summary every 30 seconds and are written only to the main SR2MP log, not to both logs.
+- Gadget placement sync was still too fragile because `OnGadgetPlaced` checked the SR2 gadget model after exactly one frame and then silently aborted if `actorId`, `ident`, or `sceneGroup` were not ready yet. It now waits up to 60 frames and logs a single actionable warning if the model never becomes valid.
+- Added one-line live gadget placement breadcrumbs: client/host logs when sending a gadget spawn, server logs when accepting a client gadget spawn, and clients log when applying a host gadget spawn.
+- Client logs showed stale gadget map marker collisions such as `An item with the same key has already been added. Key: 185891360`. Initial actor cleanup and network gadget spawn now deregister stale gadget map markers before removing/spawning gadget models.
+- Release build verified after this hotfix and copied to both host/client `Mods/SR2MP.dll` paths with the 16:32 build.
+
+Gadget lifecycle stabilization update 2026-05-01:
+
+- Retest showed FPS improved, but client-side gadget removal still did not reach the host. The 16:38-16:40 logs had no gadget spawn/destroy breadcrumbs at all, confirming the previous hooks were on the wrong/high-level paths for the observed client actions.
+- Added `GadgetModelSyncManager` as the single deduplicated model-level send path for gadget spawn and destroy packets.
+- Added `GameModel.CreateGadgetModel` and all `GameModel.DestroyGadgetModel(...)` overload hooks, so local gadget model creation/removal is synced even when SR2 bypasses `GadgetDirector.InstantiateGadget` or `GadgetModel.DestroyGadget`.
+- Existing `GadgetDirector.InstantiateGadget` and `GadgetModel.DestroyGadget` hooks now route through the same deduplicated manager instead of sending their own packets.
+- Remote/initial network gadget creation now wraps `CreateGadgetModel` in the packet echo guard to prevent reflected spawn packets.
+- Puzzle-slot/plort-depositor model pushes are now ignored when the model state has not changed, removing the remaining high-frequency ID lookup work behind the previous log spam.
+- Release build verified after this model-level gadget lifecycle change and copied to both host/client `Mods/SR2MP.dll` paths with the 16:45 build.
+
+Gadget removal action-path hotfix 2026-05-01:
+
+- Follow-up retest still showed client-side removal of refinery connectors disappearing only locally while the host kept the gadget.
+- The host/client SR2MP logs again contained no `Sending gadget destroy` / `Accepted gadget destroy` breadcrumbs for the failed action, so the client removal was still bypassing the previous `GameModel.DestroyGadgetModel(...)` and `GadgetModel.DestroyGadget(...)` hooks.
+- Added explicit client-side removal hooks for the concrete player action paths: `GadgetItem.StoreTargettedGadget`, `GadgetItem.PickupGadget`, `GadgetItem.PickupOrStoreStackedGadgets`, and `GadgetItem.DestroyGadget`.
+- Added explicit world-gadget removal hooks for `Gadget.PickUp`, `Gadget.Demolish`, `Gadget.DemolishPair`, `Gadget.DestroyGadget`, and `Gadget.GadgetPickedUpOrStored`.
+- Extended `GadgetModelSyncManager` so a destroy send can start from either a `GadgetModel` or a live `Gadget`, and so linked/stacked gadget actor ids are sent with the root removal when available.
+- Release build verified and copied to both host/client `Mods/SR2MP.dll` paths with the 16:56 build.
+
 Current status: ready for a targeted retest with periodic full repair left off. If the freeze remains, the next likely focus is the 50 failed initial actor spawns / missing actor ids, especially `SpawnResourceModel.NotifyParticipants` and the repeated actor updates for non-existent actor ids.
 
 1. Harden shared currency changes. **Status: done 2026-05-01.**

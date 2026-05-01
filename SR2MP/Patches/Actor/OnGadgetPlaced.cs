@@ -13,43 +13,36 @@ namespace SR2MP.Patches.Actor;
 [HarmonyPatch(typeof(GadgetDirector), nameof(GadgetDirector.InstantiateGadget))]
 public static class OnGadgetPlaced
 {
+    private const int GadgetModelInitMaxFrames = 60;
+
     private static IEnumerator SendSpawnAfterModelInit(GameObject gadgetObject)
     {
-        yield return null;
+        Gadget? gadget = null;
+        GadgetModel? model = null;
 
-        if (handlingPacket || (!Main.Server.IsRunning() && !Main.Client.IsConnected) || !gadgetObject)
-            yield break;
-
-        var gadget = gadgetObject.GetComponent<Gadget>();
-        if (!gadget)
-            yield break;
-
-        var model = gadget.GetModel();
-        if (model == null || model.actorId.Value == 0 || model.ident == null || model.sceneGroup == null)
-            yield break;
-
-        if (Main.Client.IsConnected
-            && NetworkSessionState.TryGetAssignedActorIdRange(out var minActorId, out var maxActorId)
-            && (model.actorId.Value < minActorId || model.actorId.Value >= maxActorId))
+        for (var frame = 0; frame < GadgetModelInitMaxFrames; frame++)
         {
-            SrLogger.LogWarning(
-                $"Not sending gadget spawn for actor {model.actorId.Value}; local id is outside assigned range [{minActorId}, {maxActorId}).",
-                SrLogTarget.Both);
+            yield return null;
+
+            if (handlingPacket || (!Main.Server.IsRunning() && !Main.Client.IsConnected) || !gadgetObject)
+                yield break;
+
+            gadget = gadgetObject.GetComponent<Gadget>();
+            if (!gadget)
+                continue;
+
+            model = gadget.GetModel();
+            if (model != null && model.actorId.Value != 0 && model.ident != null && model.sceneGroup != null)
+                break;
+        }
+
+        if (model == null || model.actorId.Value == 0 || model.ident == null || model.sceneGroup == null)
+        {
+            SrLogger.LogWarning("Not sending gadget spawn; gadget model was not ready after waiting for initialization.", SrLogTarget.Main);
             yield break;
         }
 
-        actorManager.Actors[model.actorId.Value] = model;
-        if (Main.Server.IsRunning())
-            actorManager.SetActorOwner(model.actorId.Value, LocalID);
-
-        Main.SendToAllOrServer(new ActorSpawnPacket
-        {
-            ActorId = model.actorId,
-            ActorType = NetworkActorManager.GetPersistentID(model.ident),
-            SceneGroup = NetworkSceneManager.GetPersistentID(model.sceneGroup),
-            Position = model.GetPos(),
-            Rotation = model.GetRot()
-        });
+        GadgetModelSyncManager.QueueLocalGadgetSpawn(model, "GadgetDirector.InstantiateGadget");
     }
 
     public static void Postfix(

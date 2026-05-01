@@ -4,6 +4,7 @@ using SR2MP.Packets.Utils;
 using SR2MP.Server.Managers;
 using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
+using Il2CppMonomiPark.SlimeRancher.DataModel;
 
 namespace SR2MP.Server.Handlers;
 
@@ -41,6 +42,13 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
         }
 
         actorManager.SetActorOwner(packet.ActorId.Value, client.PlayerId);
+        if (IsGadgetType(packet.ActorType))
+        {
+            SrLogger.LogMessage(
+                $"Accepted gadget spawn from {client.PlayerId} ({clientEp}); actor={packet.ActorId.Value}, type={packet.ActorType}, scene={packet.SceneGroup}.",
+                SrLogTarget.Main);
+        }
+
         Main.Server.SendToAllExcept(packet, clientEp);
         ActorUpdateSyncManager.ApplyPendingForActor(packet.ActorId.Value);
         GardenGrowthSyncManager.ApplyPendingForActor(packet.ActorId.Value);
@@ -52,4 +60,9 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
         PlayerIdGenerator.GetClientActorIdRange(playerId, out minActorId, out maxActorId);
         return actorId >= minActorId && actorId < maxActorId;
     }
+
+    private static bool IsGadgetType(int typeId)
+        => actorManager.ActorTypes.TryGetValue(typeId, out var type)
+           && type
+           && type.TryCast<GadgetDefinition>() != null;
 }

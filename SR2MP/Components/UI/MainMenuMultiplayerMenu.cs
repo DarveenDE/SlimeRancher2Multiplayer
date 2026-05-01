@@ -1,5 +1,8 @@
 using Il2CppInterop.Runtime.Attributes;
 using Il2CppTMPro;
+using Il2CppMonomiPark.SlimeRancher.UI.ButtonBehavior;
+using Il2CppMonomiPark.SlimeRancher.UI.MainMenu;
+using Il2CppMonomiPark.SlimeRancher.UI.MainMenu.Model;
 using MelonLoader;
 using SR2E.Utils;
 using SR2MP.Shared.Utils;
@@ -22,6 +25,7 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     private const float PanelWidth = 940f;
     private const float PanelHeight = 700f;
     private const float ActionButtonWidth = 280f;
+    private const int NativeLoadGameOpenMaxAttempts = 8;
 
     public static MainMenuMultiplayerMenu Instance { get; private set; }
 
@@ -402,6 +406,7 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         }
 
         Close();
+        OpenNativeLoadGameMenuAfterClose("host");
     }
 
     [HideFromIl2Cpp]
@@ -573,7 +578,99 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
 
         confirmingJoin = false;
         Close();
+        OpenNativeLoadGameMenuAfterClose("join");
     }
+
+    [HideFromIl2Cpp]
+    private static void OpenNativeLoadGameMenuAfterClose(string flow)
+    {
+        SrLogger.LogMessage($"SR2MP {flow} save selection armed; opening SR2 Load Game menu.", SrLogTarget.Both);
+        ActionsEUtil.ExecuteInTicks((Action)(() => TryOpenNativeLoadGameMenu(flow, 1)), 1);
+    }
+
+    [HideFromIl2Cpp]
+    private static void TryOpenNativeLoadGameMenu(string flow, int attempt)
+    {
+        try
+        {
+            if (TryInvokeNativeLoadGameBehavior())
+            {
+                SrLogger.LogMessage($"Opened SR2 Load Game menu for SR2MP {flow} save selection.", SrLogTarget.Both);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogWarning($"Failed to open SR2 Load Game menu for SR2MP {flow} save selection: {ex}", SrLogTarget.Both);
+            return;
+        }
+
+        if (attempt < NativeLoadGameOpenMaxAttempts)
+        {
+            ActionsEUtil.ExecuteInTicks((Action)(() => TryOpenNativeLoadGameMenu(flow, attempt + 1)), 1);
+            return;
+        }
+
+        SrLogger.LogWarning(
+            $"Could not find SR2's native Load Game button for SR2MP {flow} save selection. Save selection remains armed; open Load Game manually.",
+            SrLogTarget.Both);
+    }
+
+    [HideFromIl2Cpp]
+    private static bool TryInvokeNativeLoadGameBehavior()
+    {
+        var landingRoot = Object.FindObjectOfType<MainMenuLandingRootUI>();
+        if (!landingRoot)
+            return false;
+
+        var models = landingRoot._models;
+        if (models == null || models.Count == 0)
+            return false;
+
+        for (int i = 0; i < models.Count; i++)
+        {
+            var model = models[i];
+            if (model == null)
+                continue;
+
+            if (model.TryCast<ContinueGameBehaviorModel>() != null)
+                continue;
+
+            var loadGameModel = model.TryCast<LoadGameBehaviorModel>();
+            if (loadGameModel == null || IsSr2eCustomMainMenuDefinition(loadGameModel.Definition))
+                continue;
+
+            loadGameModel.InvokeBehavior();
+            return true;
+        }
+
+        return false;
+    }
+
+    [HideFromIl2Cpp]
+    private static bool IsSr2eCustomMainMenuDefinition(ButtonBehaviorDefinition? definition)
+    {
+        if (definition == null)
+            return false;
+
+        string? il2CppTypeName = null;
+        try
+        {
+            il2CppTypeName = definition.GetIl2CppType()?.FullName;
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogDebug($"Could not resolve main-menu definition IL2CPP type: {ex.GetType().Name}", SrLogTarget.Sensitive);
+        }
+
+        var managedTypeName = definition.GetType().FullName;
+        return IsSr2eCustomMainMenuDefinitionType(il2CppTypeName)
+            || IsSr2eCustomMainMenuDefinitionType(managedTypeName);
+    }
+
+    [HideFromIl2Cpp]
+    private static bool IsSr2eCustomMainMenuDefinitionType(string? typeName)
+        => typeName is "SR2E.Buttons.CustomMainMenuItemDefinition" or "SR2E.Buttons.CustomMainMenuSubItemDefinition";
 
     [HideFromIl2Cpp]
     private void CancelPendingSelection()

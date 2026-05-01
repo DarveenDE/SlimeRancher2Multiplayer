@@ -91,6 +91,7 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
 
         if (gadget != null)
         {
+            DeregisterGadgetMapMarker(actor.actorId);
             SceneContext.Instance.GameModel.DestroyGadgetModel(gadget);
             RemoveFromModelIndexes(actor);
             if (gameObject)
@@ -126,11 +127,32 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
             if (!gadget || !gadget.gameObject)
                 continue;
 
+            var model = gadget.GetModel();
+            if (model != null)
+                DeregisterGadgetMapMarker(model.actorId);
             Object.Destroy(gadget.gameObject);
             destroyed++;
         }
 
         return destroyed;
+    }
+
+    private static void DeregisterGadgetMapMarker(ActorId actorId)
+    {
+        if (actorId.Value == 0 || !SceneContext.Instance || !SceneContext.Instance.MapDirector)
+            return;
+
+        var markerId = actorId.Value.ToString();
+        try
+        {
+            var mapDirector = SceneContext.Instance.MapDirector;
+            if (mapDirector.Markers != null && mapDirector.Markers.ContainsKey(markerId))
+                mapDirector.DeregisterMarker(markerId);
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogDebug($"Failed to deregister stale gadget map marker {markerId}: {ex.GetType().Name}", SrLogTarget.Sensitive);
+        }
     }
 
     // Spawns actors in batches across frames to avoid a single-frame instantiation hitch.

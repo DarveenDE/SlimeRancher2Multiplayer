@@ -238,12 +238,18 @@ public sealed class NetworkActorManager
         if (ActorIDAlreadyInUse(actorId))
             return false;
 
-        var model = SceneContext.Instance.GameModel.CreateGadgetModel(
-            gadgetDefinition,
-            actorId,
-            scene,
-            position,
-            isPrePlaced);
+        DeregisterStaleGadgetMapMarker(actorId);
+
+        GadgetModel? model = null;
+        RunWithHandlingPacket(() =>
+        {
+            model = SceneContext.Instance.GameModel.CreateGadgetModel(
+                gadgetDefinition,
+                actorId,
+                scene,
+                position,
+                isPrePlaced);
+        });
 
         if (model == null)
             return false;
@@ -274,6 +280,24 @@ public sealed class NetworkActorManager
         gadgetModel = model;
         actorManager.Actors[actorId.Value] = model;
         return true;
+    }
+
+    private static void DeregisterStaleGadgetMapMarker(ActorId actorId)
+    {
+        if (actorId.Value == 0 || !SceneContext.Instance || !SceneContext.Instance.MapDirector)
+            return;
+
+        var markerId = actorId.Value.ToString();
+        try
+        {
+            var mapDirector = SceneContext.Instance.MapDirector;
+            if (mapDirector.Markers != null && mapDirector.Markers.ContainsKey(markerId))
+                mapDirector.DeregisterMarker(markerId);
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogDebug($"Failed to deregister stale gadget map marker {markerId}: {ex.GetType().Name}", SrLogTarget.Sensitive);
+        }
     }
 
     public static long GetHighestActorIdInRange(long min, long max)

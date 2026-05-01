@@ -1,6 +1,6 @@
 using HarmonyLib;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
-using SR2MP.Packets.Actor;
+using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
 
 namespace SR2MP.Patches.Actor;
@@ -23,10 +23,7 @@ public static class OnGadgetDestroyed
         if (actorId.Value == 0)
             return;
 
-        Main.SendToAllOrServer(new ActorDestroyPacket
-        {
-            ActorId = actorId
-        });
+        GadgetModelSyncManager.SendLocalGadgetDestroy(actorId, "GadgetModel.DestroyGadget");
     }
 
     public static void Postfix(GadgetModel __instance)

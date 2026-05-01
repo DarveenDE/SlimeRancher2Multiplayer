@@ -15,6 +15,14 @@ public static class OnMainMenuLoadGame
         try
         {
             var summary = __instance.GameDataSummary;
+            if (summary == null || summary.IsInvalid)
+            {
+                SrLogger.LogMessage(
+                    "Ignoring Load Game action without a concrete save while main-menu multiplayer save selection is armed.",
+                    SrLogTarget.Both);
+                return;
+            }
+
             bool prepared = MultiplayerLaunchCoordinator.IsHostSaveSelectionArmed
                 ? MultiplayerLaunchCoordinator.TryPrepareHostFromSelectedSave(summary)
                 : MultiplayerLaunchCoordinator.TryPrepareJoinFromSelectedSave(summary);
