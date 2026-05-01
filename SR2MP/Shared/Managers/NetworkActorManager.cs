@@ -15,6 +15,7 @@ public sealed class NetworkActorManager
 {
     public readonly Dictionary<long, IdentifiableModel> Actors    = new();
     public readonly Dictionary<int, IdentifiableType> ActorTypes  = new();
+    public readonly Dictionary<long, string> ActorOwners = new();
 
     public static int GetPersistentID(IdentifiableType type)
         => GameContext.Instance.AutoSaveDirector._saveReferenceTranslation.GetPersistenceId(type);
@@ -23,6 +24,7 @@ public sealed class NetworkActorManager
     {
         ActorTypes.Clear();
         Actors.Clear();
+        ActorOwners.Clear();
 
         foreach (var type in context.AutoSaveDirector._saveReferenceTranslation._identifiableTypeLookup)
         {
@@ -67,6 +69,7 @@ public sealed class NetworkActorManager
                     continue;
                 Object.Destroy(obj);
                 Actors.Remove(actor.value.actorId.Value);
+                ClearActorOwner(actor.value.actorId.Value);
             }
 
             foreach (var actor2 in gameModel.identifiables)
@@ -98,6 +101,8 @@ public sealed class NetworkActorManager
                 networkComponent.nextRotation = model.lastRotation;
 
                 actorManager.Actors[model.actorId.Value] = model;
+                if (Main.Server.IsRunning())
+                    actorManager.SetActorOwner(model.actorId.Value, LocalID);
             }
 
             yield return TakeOwnershipOfNearby();
@@ -309,6 +314,24 @@ public sealed class NetworkActorManager
         var next = highest + 1;
         return next < max ? next : max - 1;
     }
+
+    public void SetActorOwner(long actorId, string ownerPlayer)
+    {
+        if (actorId == 0 || string.IsNullOrWhiteSpace(ownerPlayer))
+            return;
+
+        ActorOwners[actorId] = ownerPlayer;
+    }
+
+    public bool TryGetActorOwner(long actorId, out string? ownerPlayer)
+        => ActorOwners.TryGetValue(actorId, out ownerPlayer);
+
+    public bool IsActorOwnedBy(long actorId, string ownerPlayer)
+        => TryGetActorOwner(actorId, out var currentOwner)
+           && string.Equals(currentOwner, ownerPlayer, StringComparison.Ordinal);
+
+    public void ClearActorOwner(long actorId)
+        => ActorOwners.Remove(actorId);
 
     internal IEnumerator TakeOwnershipOfNearby()
     {

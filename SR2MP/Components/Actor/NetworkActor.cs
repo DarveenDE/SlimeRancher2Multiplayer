@@ -205,6 +205,9 @@ public sealed class NetworkActor : MonoBehaviour
                     yield break;
                 }
 
+                if (Main.Server.IsRunning())
+                    actorManager.ClearActorOwner(actorId.Value);
+
                 var packet = new ActorUnloadPacket { ActorId = actorId };
                 Main.SendToAllOrServer(packet);
             }
@@ -217,6 +220,9 @@ public sealed class NetworkActor : MonoBehaviour
                 {
                     yield break;
                 }
+
+                if (Main.Server.IsRunning())
+                    actorManager.SetActorOwner(actorId.Value, LocalID);
 
                 var packet = new ActorTransferPacket
                 {

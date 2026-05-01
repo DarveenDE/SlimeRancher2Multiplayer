@@ -28,6 +28,8 @@ public static class OnGadgetPlaced
             yield break;
 
         actorManager.Actors[model.actorId.Value] = model;
+        if (Main.Server.IsRunning())
+            actorManager.SetActorOwner(model.actorId.Value, LocalID);
 
         Main.SendToAllOrServer(new ActorSpawnPacket
         {

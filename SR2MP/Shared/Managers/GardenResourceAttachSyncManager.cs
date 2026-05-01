@@ -435,6 +435,7 @@ public static class GardenResourceAttachSyncManager
         }
 
         actorManager.Actors.Remove(actorId.Value);
+        actorManager.ClearActorOwner(actorId.Value);
 
         var obj = model.GetGameObject();
         if (obj)

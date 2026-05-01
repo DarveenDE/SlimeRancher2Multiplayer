@@ -40,6 +40,7 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
             return;
         }
 
+        actorManager.SetActorOwner(packet.ActorId.Value, client.PlayerId);
         Main.Server.SendToAllExcept(packet, clientEp);
         ActorUpdateSyncManager.ApplyPendingForActor(packet.ActorId.Value);
         GardenGrowthSyncManager.ApplyPendingForActor(packet.ActorId.Value);

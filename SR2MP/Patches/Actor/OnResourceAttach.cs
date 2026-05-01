@@ -33,6 +33,7 @@ public static class OnResourceAttach
 
             SceneContext.Instance.GameModel.DestroyIdentifiableModel(other._model);
             actorManager.Actors.Remove(other._model.actorId.Value);
+            actorManager.ClearActorOwner(other._model.actorId.Value);
 
             RunWithHandlingPacket(() => Destroyer.DestroyActor(other.gameObject, "SR2MP.OnResourceAttach"));
             joint.connectedBody = null;

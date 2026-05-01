@@ -27,6 +27,7 @@ public static class OnGameLoadPatch
                 transform.gameObject.AddComponent<NetworkActor>().LocallyOwned = true;
 
                 actorManager.Actors[actor.value.actorId.Value] = actor.value;
+                actorManager.SetActorOwner(actor.value.actorId.Value, LocalID);
             }
 
             SceneContext.Instance.GameModel._actorIdProvider._nextActorId =

@@ -24,6 +24,7 @@ public sealed class ActorDestroyHandler : BaseClientPacketHandler<ActorDestroyPa
         {
             RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
             actorManager.Actors.Remove(packet.ActorId.Value);
+            actorManager.ClearActorOwner(packet.ActorId.Value);
             return;
         }
 
@@ -33,6 +34,7 @@ public sealed class ActorDestroyHandler : BaseClientPacketHandler<ActorDestroyPa
 
         SceneContext.Instance.GameModel.DestroyIdentifiableModel(actor);
         actorManager.Actors.Remove(packet.ActorId.Value);
+        actorManager.ClearActorOwner(packet.ActorId.Value);
 
         var obj = actor.GetGameObject();
         if (obj)

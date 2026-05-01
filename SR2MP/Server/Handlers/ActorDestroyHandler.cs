@@ -14,9 +14,23 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
 
     protected override void Handle(ActorDestroyPacket packet, IPEndPoint clientEp)
     {
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
         if (!actorManager.Actors.TryGetValue(packet.ActorId.Value, out var actor))
         {
             SrLogger.LogPacketSize($"Actor {packet.ActorId.Value} doesn't exist (already destroyed?)", SrLogTarget.Both);
+            return;
+        }
+
+        if (!actorManager.IsActorOwnedBy(packet.ActorId.Value, client.PlayerId))
+        {
+            var owner = actorManager.TryGetActorOwner(packet.ActorId.Value, out var currentOwner)
+                ? currentOwner
+                : "unknown";
+            SrLogger.LogWarning(
+                $"Rejected actor destroy from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} is owned by {owner}.",
+                SrLogTarget.Both);
             return;
         }
 
@@ -25,6 +39,7 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
         {
             RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
             actorManager.Actors.Remove(packet.ActorId.Value);
+            actorManager.ClearActorOwner(packet.ActorId.Value);
             Main.Server.SendToAllExcept(packet, clientEp);
             return;
         }
@@ -35,6 +50,7 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
 
         SceneContext.Instance.GameModel.DestroyIdentifiableModel(actor);
         actorManager.Actors.Remove(packet.ActorId.Value);
+        actorManager.ClearActorOwner(packet.ActorId.Value);
 
         var obj = actor.GetGameObject();
         if (obj)

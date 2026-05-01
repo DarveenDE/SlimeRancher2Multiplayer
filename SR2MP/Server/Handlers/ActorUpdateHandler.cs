@@ -14,6 +14,18 @@ public sealed class ActorUpdateHandler : BasePacketHandler<ActorUpdatePacket>
 
     protected override void Handle(ActorUpdatePacket packet, IPEndPoint clientEp)
     {
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
+        if (actorManager.TryGetActorOwner(packet.ActorId.Value, out var owner)
+            && owner != client.PlayerId)
+        {
+            SrLogger.LogWarning(
+                $"Rejected actor update from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} is owned by {owner}.",
+                SrLogTarget.Both);
+            return;
+        }
+
         ActorUpdateSyncManager.ApplyOrQueue(
             packet,
             "server actor update",

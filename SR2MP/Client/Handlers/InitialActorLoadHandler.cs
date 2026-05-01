@@ -17,6 +17,7 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
     protected override void Handle(InitialActorsPacket packet)
     {
         actorManager.Actors.Clear();
+        actorManager.ActorOwners.Clear();
 
         var toRemove = new CppCollections.Dictionary<ActorId, IdentifiableModel>(
             SceneContext.Instance.GameModel.identifiables

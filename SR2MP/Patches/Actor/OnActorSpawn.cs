@@ -45,6 +45,8 @@ public static class OnActorSpawn
         Main.SendToAllOrServer(packet);
 
         actorManager.Actors[id.Value] = identifiableActor._model;
+        if (Main.Server.IsRunning())
+            actorManager.SetActorOwner(id.Value, LocalID);
     }
 
     public static void Postfix(

@@ -25,6 +25,7 @@ public static class NetworkSessionState
         ActorUpdateSyncManager.Clear();
         GardenGrowthSyncManager.Clear();
         GardenResourceAttachSyncManager.Clear();
+        actorManager.ActorOwners.Clear();
         System.Threading.Volatile.Write(ref initialActorLoadInProgress, 0);
         handlingPacket = false;
     }

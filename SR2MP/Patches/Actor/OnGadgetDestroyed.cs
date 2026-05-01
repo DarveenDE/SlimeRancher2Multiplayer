@@ -34,5 +34,6 @@ public static class OnGadgetDestroyed
             return;
 
         actorManager.Actors.Remove(__instance.actorId.Value);
+        actorManager.ClearActorOwner(__instance.actorId.Value);
     }
 }

@@ -14,10 +14,13 @@ public static class OnActorVacced
             return;
 
         networkActor.LocallyOwned = true;
+        var actorId = __instance._identifiable.GetActorId();
+        if (Main.Server.IsRunning())
+            actorManager.SetActorOwner(actorId.Value, LocalID);
 
         var packet = new ActorTransferPacket
         {
-            ActorId = __instance._identifiable.GetActorId(),
+            ActorId = actorId,
             OwnerPlayer = LocalID,
         };
 
