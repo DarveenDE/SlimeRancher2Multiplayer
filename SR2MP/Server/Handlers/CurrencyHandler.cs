@@ -14,6 +14,10 @@ public sealed class CurrencyHandler : BasePacketHandler<CurrencyPacket>
 
     protected override void Handle(CurrencyPacket packet, IPEndPoint clientEp)
     {
+        if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
+            return;
+
+        // Validate: currency type is known.
         if (!TryGetCurrency(packet.CurrencyType, out var currencyDefinition))
         {
             SrLogger.LogWarning(
@@ -22,34 +26,28 @@ public sealed class CurrencyHandler : BasePacketHandler<CurrencyPacket>
             return;
         }
 
-        var hostAmount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
-        if (!packet.HasBaseline)
+        // Authority: baseline match (HasBaseline + PreviousAmount == hostAmount).
+        // Pipeline logs the rejection; we send a correction so the client converges.
+        if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
         {
-            SrLogger.LogWarning(
-                $"Ignoring legacy currency update for type {packet.CurrencyType} from {DescribeClient(clientEp)}; packet does not include a baseline.",
-                SrLogTarget.Both);
-            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
+            var correctionAmount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+            SendHostAmount(packet.CurrencyType, correctionAmount, packet.ShowUINotification, clientEp);
             return;
         }
 
-        if (packet.PreviousAmount != hostAmount)
-        {
-            SrLogger.LogWarning(
-                $"Ignoring stale currency update for type {packet.CurrencyType} from {DescribeClient(clientEp)}; host={hostAmount}, clientExpected={packet.PreviousAmount}, requestedNew={packet.NewAmount}.",
-                SrLogTarget.Both);
-            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
-            return;
-        }
-
-        var expectedNewAmount = hostAmount + packet.DeltaAmount;
-        if (expectedNewAmount != packet.NewAmount)
+        if (packet.PreviousAmount + packet.DeltaAmount != packet.NewAmount)
         {
             SrLogger.LogWarning(
                 $"Ignoring malformed currency update for type {packet.CurrencyType} from {DescribeClient(clientEp)}; previous {packet.PreviousAmount} + delta {packet.DeltaAmount} != requested {packet.NewAmount}.",
                 SrLogTarget.Both);
-            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
+            var correctionAmount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+            SendHostAmount(packet.CurrencyType, correctionAmount, packet.ShowUINotification, clientEp);
             return;
         }
+
+        var requestedNewAmount = packet.NewAmount;
+        var hostAmount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+        var expectedNewAmount = hostAmount + packet.DeltaAmount;
 
         if (expectedNewAmount < 0)
         {
@@ -73,7 +71,10 @@ public sealed class CurrencyHandler : BasePacketHandler<CurrencyPacket>
         packet.DeltaAmount = acceptedAmount - hostAmount;
         packet.NewAmount = acceptedAmount;
 
-        Main.Server.SendToAllExcept(packet, clientEp);
+        if (acceptedAmount == requestedNewAmount)
+            Main.Server.SendToAllExcept(packet, clientEp);
+        else
+            Main.Server.SendToAll(packet);
     }
 
     private static bool TryGetCurrency(byte currencyType, out ICurrency currencyDefinition)

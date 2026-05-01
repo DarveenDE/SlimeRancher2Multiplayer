@@ -13,6 +13,12 @@ public static class OnGameLoadPatch
 
     public static void Postfix()
     {
+        // SceneContext.Instance is now set. Execute any pending multiplayer launch
+        // that was prepared in the main menu. AfterGameContext may fire before
+        // SceneContext.Start in some load paths, so this is the authoritative retry point.
+        if (GameContext.Instance != null)
+            MultiplayerLaunchCoordinator.TryExecutePendingLaunch(GameContext.Instance);
+
         if (serverStartHandlerRegistered)
             return;
 

@@ -17,6 +17,22 @@ public static class OnPuzzleStateChanged
     private static readonly Dictionary<IntPtr, bool> LastSlotStates = new();
     private static readonly Dictionary<IntPtr, int> LastDepositorStates = new();
 
+    // Slots/depositors whose native pointer failed TryGetSlotId/TryGetDepositorId — these will
+    // never resolve in the current scene, so we skip them after the first failure to avoid
+    // ~800 000 useless ID-lookup calls per 30 s (one per PuzzleSlotModel.Push invocation).
+    private static readonly HashSet<IntPtr> _knownUnregisteredSlots = new();
+    private static readonly HashSet<IntPtr> _knownUnregisteredDepositors = new();
+
+    /// <summary>Clears the unregistered-pointer caches. Call on every scene/level load so that
+    /// puzzle slots that were not yet registered on first use can be retried.</summary>
+    public static void ResetCaches()
+    {
+        _knownUnregisteredSlots.Clear();
+        _knownUnregisteredDepositors.Clear();
+        LastSlotStates.Clear();
+        LastDepositorStates.Clear();
+    }
+
     [HarmonyPostfix]
     [HarmonyPatch(typeof(PuzzleSlotModel), nameof(PuzzleSlotModel.Push))]
     public static void PuzzleSlotFilled(PuzzleSlotModel __instance, bool filled)
@@ -24,11 +40,17 @@ public static class OnPuzzleStateChanged
         if (handlingPacket || (!Main.Server.IsRunning() && !Main.Client.IsConnected))
             return;
 
+        var ptr = IL2CPP.Il2CppObjectBaseToPtr(__instance);
+        if (ptr != IntPtr.Zero && _knownUnregisteredSlots.Contains(ptr))
+            return;
+
         if (!ShouldProcessSlotPush(__instance, filled))
             return;
 
         if (!PuzzleStateSyncManager.TryGetSlotId(__instance, out var id))
         {
+            if (ptr != IntPtr.Zero)
+                _knownUnregisteredSlots.Add(ptr);
             LogMissingSlotId();
             return;
         }
@@ -47,11 +69,17 @@ public static class OnPuzzleStateChanged
         if (handlingPacket || (!Main.Server.IsRunning() && !Main.Client.IsConnected))
             return;
 
+        var ptr = IL2CPP.Il2CppObjectBaseToPtr(__instance);
+        if (ptr != IntPtr.Zero && _knownUnregisteredDepositors.Contains(ptr))
+            return;
+
         if (!ShouldProcessDepositorPush(__instance, amountDeposited))
             return;
 
         if (!PuzzleStateSyncManager.TryGetDepositorId(__instance, out var id))
         {
+            if (ptr != IntPtr.Zero)
+                _knownUnregisteredDepositors.Add(ptr);
             LogMissingDepositorId();
             return;
         }

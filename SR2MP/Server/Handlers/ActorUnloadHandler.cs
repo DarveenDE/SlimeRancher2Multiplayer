@@ -28,16 +28,9 @@ public sealed class ActorUnloadHandler : BasePacketHandler<ActorUnloadPacket>
             return;
         }
 
-        if (!actorManager.IsActorOwnedBy(packet.ActorId.Value, client.PlayerId))
-        {
-            var owner = actorManager.TryGetActorOwner(packet.ActorId.Value, out var currentOwner)
-                ? currentOwner
-                : "unknown";
-            SrLogger.LogWarning(
-                $"Rejected actor unload from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} is owned by {owner}.",
-                SrLogTarget.Both);
+        // Authority: only the registered owner may unload.
+        if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
             return;
-        }
 
         if (!component.regionMember)
             return;

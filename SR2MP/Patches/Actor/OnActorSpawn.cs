@@ -44,19 +44,17 @@ public static class OnActorSpawn
             yield break;
         }
 
-        var packet = new ActorSpawnPacket
-        {
-            ActorType = actorType,
-            SceneGroup = sceneGroup,
-            ActorId = id,
-            Position = actor.transform.position,
-            Rotation = actor.transform.rotation,
-        };
+        if (Main.Client.IsConnected && actorManager.Actors.ContainsKey(id.Value))
+            yield break;
+
+        var packet = ClientLocalActorSpawnHelper.CreateSpawnPacket(actor, id, actorType, sceneGroup);
 
         Main.SendToAllOrServer(packet);
 
         actorManager.Actors[id.Value] = identifiableActor._model;
         if (Main.Server.IsRunning())
+            actorManager.SetActorOwner(id.Value, LocalID);
+        else if (Main.Client.IsConnected)
             actorManager.SetActorOwner(id.Value, LocalID);
     }
 
@@ -76,6 +74,17 @@ public static class OnActorSpawn
 
         var identifiableActor = __result.GetComponent<IdentifiableActor>();
         if (!identifiableActor) return;
+
+        if (!ClientLocalActorSpawnHelper.TryPrepareForLocalNetworkSpawn(
+                __result,
+                identifiableActor,
+                "InstantiationHelpers.InstantiateActor",
+                out _,
+                out var shouldSendSpawn)
+            || !shouldSendSpawn)
+        {
+            return;
+        }
 
         var networkActor = __result.GetComponent<NetworkActor>();
         if (!networkActor)

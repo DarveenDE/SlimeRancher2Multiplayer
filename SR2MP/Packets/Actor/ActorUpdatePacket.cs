@@ -4,7 +4,7 @@ using Unity.Mathematics;
 
 namespace SR2MP.Packets.Actor;
 
-public struct ActorUpdatePacket : IPacket
+public struct ActorUpdatePacket : IPacket, IActorPacket
 {
     public ActorId ActorId { get; set; }
     public float4 Emotions { get; set; }

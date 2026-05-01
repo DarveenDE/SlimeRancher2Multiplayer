@@ -33,9 +33,14 @@ public static class GlobalVariables
 
     public static Dictionary<string, WeatherPatternDefinition> weatherPatternsFromStateNames;
 
-    // To prevent stuff from being stuck in
-    // an infinite sending loop
-    public static bool handlingPacket = false;
+    // To prevent stuff from being stuck in an infinite sending loop.
+    // Backed by SessionPhaseGate.EchoSuppressed – use PacketEchoGuard.RunWithHandlingPacket
+    // (or SessionPhaseGate.EnterEchoGuard) instead of setting this directly.
+    public static bool handlingPacket
+    {
+        get => SR2MP.Shared.Utils.NetworkSessionState.PhaseGate.ShouldSuppressEcho;
+        set => SR2MP.Shared.Utils.NetworkSessionState.PhaseGate.EchoSuppressed = value;
+    }
 
     public static string LocalID =>
         Main.Server.IsRunning()

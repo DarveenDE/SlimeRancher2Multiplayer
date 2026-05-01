@@ -21,6 +21,8 @@ public sealed class ClientPacketManager
 
     public void RegisterHandlers()
     {
+        RegisterSubsystems();
+
         var handlerTypes = Main.Core.GetTypes()
             .Where(type => type.GetCustomAttribute<PacketHandlerAttribute>() != null
                         && typeof(IClientPacketHandler).IsAssignableFrom(type)
@@ -46,6 +48,18 @@ public sealed class ClientPacketManager
         }
 
         SrLogger.LogMessage($"Total client packet handlers registered: {handlers.Count}", SrLogTarget.Both);
+    }
+
+    private static void RegisterSubsystems()
+    {
+        var registry = SR2MP.Shared.Sync.SubsystemRegistry.Instance;
+        registry.Register(SR2MP.Shared.Sync.MapUnlockSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.CommStationSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.PuzzleStateSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.LandPlotsSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.GardenResourceAttachSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.RefinerySubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.ResourceNodeSubsystem.Instance);
     }
 
     public void HandlePacket(byte[] data, IPEndPoint serverEp)
@@ -98,14 +112,31 @@ public sealed class ClientPacketManager
 
         if (packetReliability == PacketReliability.ReliableOrdered)
         {
-            switch (client.AcceptOrderedPacket(serverEp, packetSequenceNumber, packetType))
+            var (bufResult, toProcess) = client.AcceptOrderedPacketWithBuffer(
+                serverEp, packetSequenceNumber, packetType, data);
+
+            switch (bufResult)
             {
-                case OrderedPacketStatus.OutOfOrder:
+                case StreamReceiveResult.Duplicate:
+                    SendAck(packetId, packetType);
                     return;
-                case OrderedPacketStatus.Duplicate:
+                case StreamReceiveResult.Buffered:
+                    // ACK so the server doesn't resend; dispatch deferred until gap fills.
                     SendAck(packetId, packetType);
                     return;
             }
+
+            // Delivered: ACK then dispatch this packet plus any newly-unlocked buffered packets.
+            SendAck(packetId, packetType);
+            foreach (var packetData in toProcess!)
+            {
+                var captured = packetData;
+                if (handlers.TryGetValue(captured[0], out var h))
+                    MainThreadDispatcher.Enqueue(() => h.Handle(captured));
+                else
+                    SrLogger.LogError($"No client handler found for buffered packet type: {captured[0]}", SrLogTarget.Both);
+            }
+            return;
         }
 
         // Sends ACK for reliable packets

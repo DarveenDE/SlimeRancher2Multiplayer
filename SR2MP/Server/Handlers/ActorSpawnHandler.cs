@@ -3,7 +3,6 @@ using SR2MP.Packets.Actor;
 using SR2MP.Packets.Utils;
 using SR2MP.Server.Managers;
 using SR2MP.Shared.Managers;
-using SR2MP.Shared.Utils;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 
 namespace SR2MP.Server.Handlers;
@@ -19,13 +18,8 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
         if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
             return;
 
-        if (!IsActorIdInClientRange(packet.ActorId.Value, client.PlayerId, out var minActorId, out var maxActorId))
-        {
-            SrLogger.LogWarning(
-                $"Rejected actor spawn from {client.PlayerId} ({clientEp}); actor id {packet.ActorId.Value} is outside assigned range [{minActorId}, {maxActorId}).",
-                SrLogTarget.Both);
+        if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
             return;
-        }
 
         if (actorManager.Actors.ContainsKey(packet.ActorId.Value))
         {
@@ -53,12 +47,6 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
         ActorUpdateSyncManager.ApplyPendingForActor(packet.ActorId.Value);
         GardenGrowthSyncManager.ApplyPendingForActor(packet.ActorId.Value);
         GardenResourceAttachSyncManager.ApplyPendingForActor(packet.ActorId.Value);
-    }
-
-    private static bool IsActorIdInClientRange(long actorId, string playerId, out long minActorId, out long maxActorId)
-    {
-        PlayerIdGenerator.GetClientActorIdRange(playerId, out minActorId, out maxActorId);
-        return actorId >= minActorId && actorId < maxActorId;
     }
 
     private static bool IsGadgetType(int typeId)

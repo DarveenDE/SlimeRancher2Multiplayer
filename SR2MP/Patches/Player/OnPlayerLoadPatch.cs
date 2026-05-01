@@ -12,12 +12,16 @@ public static class OnPlayerLoadPatch
     {
         if (Main.Server.IsRunning())
         {
+            playerManager.AddPlayer("HOST").Username = Main.Username;
+
             var networkPlayer = __instance.AddComponent<NetworkPlayer>();
             networkPlayer.ID = "HOST";
             networkPlayer.IsLocal = true;
         }
         else if (Main.Client.IsConnected)
         {
+            playerManager.AddPlayer(Main.Client.OwnPlayerId).Username = Main.Username;
+
             var networkPlayer = __instance.AddComponent<NetworkPlayer>();
             networkPlayer.ID = Main.Client.OwnPlayerId;
             networkPlayer.IsLocal = true;

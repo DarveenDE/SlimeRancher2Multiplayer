@@ -34,6 +34,10 @@ public sealed class ConnectAckHandler : BaseClientPacketHandler<ConnectAckPacket
         SrLogger.LogMessage($"Connection acknowledged by server; waiting for initial sync (PlayerId: {packet.PlayerId})",
             SrLogTarget.Both);
 
+        NetworkSessionState.PhaseGate.TryTransition(
+            SessionPhase.InitialSync,
+            $"ConnectAck received (PlayerId: {packet.PlayerId})");
+
         SceneContext.Instance.PlayerState._model.SetCurrency(GameContext.Instance.LookupDirector._currencyList[0].Cast<ICurrency>(), packet.Money);
         SceneContext.Instance.PlayerState._model.SetCurrency(GameContext.Instance.LookupDirector._currencyList[1].Cast<ICurrency>(), packet.RainbowMoney);
 
@@ -45,8 +49,14 @@ public sealed class ConnectAckHandler : BaseClientPacketHandler<ConnectAckPacket
         }
     }
 
-    private static void SpawnPlayer(string id, string name)
+    private void SpawnPlayer(string id, string name)
     {
+        if (string.IsNullOrWhiteSpace(id) || id == Client.OwnPlayerId)
+            return;
+
+        if (playerManager.GetPlayer(id) != null || playerObjects.ContainsKey(id))
+            return;
+
         var playerObject = Object.Instantiate(playerPrefab).GetComponent<NetworkPlayer>();
         playerObject.gameObject.SetActive(true);
         playerObject.ID = id;

@@ -63,6 +63,8 @@ public enum PacketType : byte
     ResourceNodeState = 58,       // Both Ways                                                                          Resource node/ore spawn and harvest state
     ConnectRejected = 59,         // Server -> Client                                                                   Host rejected the join request
     ResyncRequest = 60,           // Client -> Server                                                                   Client requests a host repair snapshot
+    SubsystemSnapshot = 61,       // Server -> Client                                                                   Generic subsystem snapshot (Initial-Sync or Repair)
+    PlayerLoopSound = 62,         // Both Ways                                                                          Player-attached looping sounds
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

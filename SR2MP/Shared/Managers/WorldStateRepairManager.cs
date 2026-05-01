@@ -17,7 +17,7 @@ namespace SR2MP.Shared.Managers;
 public static class WorldStateRepairManager
 {
     private const float RepairIntervalSeconds = 120f;
-    private const float ManualRepairCooldownSeconds = 5f;
+    private const float ManualRepairCooldownSeconds = 30f;
     private static bool repairLoopRunning;
     private static float nextManualRepairAt;
     private static long repairSnapshotSequence;
@@ -91,7 +91,11 @@ public static class WorldStateRepairManager
             return false;
         }
 
-        if (!Main.Server.AllClientsInitialSyncComplete())
+        // Guard via both the legacy per-client flag and the new PhaseGate so that
+        // repair snapshots are never sent while any client is still in InitialSync.
+        // (Fixes the 14:46-freeze pattern described in SYNC_ARCHITECTURE.md §1.3.)
+        if (!Main.Server.AllClientsInitialSyncComplete()
+            || SR2MP.Shared.Utils.NetworkSessionState.PhaseGate.ShouldQueueReliable)
         {
             if (Main.SyncDiagnosticsEnabled)
             {
@@ -123,7 +127,7 @@ public static class WorldStateRepairManager
         void TimedSend(string area, Action send) => TrySend(area, send, stats);
 
         TimedSend("currency", () => SendCurrencySnapshot(stats));
-        TimedSend("refinery", () => SendRefinerySnapshot(stats));
+        TimedSend("refinery", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.Refinery));
         if (!TryGetGameModel(out var gameModel))
         {
             LogRepairSnapshot(reason, snapshotId, snapshotStart, pendingBefore, stats);
@@ -132,18 +136,18 @@ public static class WorldStateRepairManager
 
         TimedSend("pedia", () => SendPediaSnapshot(stats));
         TimedSend("player upgrades", () => SendPlayerUpgradeSnapshot(stats));
-        TimedSend("land plots", () => SendLandPlotSnapshots(gameModel, stats));
+        TimedSend("land plots", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.LandPlots));
+        TimedSend("garden attach", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.GardenResourceAttach));
         TimedSend("switches", () => SendSwitchSnapshots(gameModel, stats));
         TimedSend("access doors", () => SendAccessDoorSnapshots(gameModel, stats));
         TimedSend("map unlocks", () => SendMapUnlockSnapshots(stats));
-        TimedSend("comm station", () => SendCommStationSnapshots(stats));
-        TimedSend("resource nodes", () => SendResourceNodeSnapshots(stats));
+        TimedSend("comm station", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.CommStation));
+        TimedSend("resource nodes", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.ResourceNode));
         TimedSend("gordos", () => SendGordoSnapshots(gameModel, stats));
-        TimedSend("puzzle slots", () => SendPuzzleSlotSnapshots(gameModel, stats));
-        TimedSend("plort depositors", () => SendPlortDepositorSnapshots(gameModel, stats));
+        TimedSend("puzzle state", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.PuzzleState));
 
         SrLogger.LogDebug(
-            $"Repair snapshot sent: currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, playerUpgrades={stats.PlayerUpgrades}, refinery={stats.RefineryItems}, plotTypes={stats.LandPlotTypes}, plotUpgrades={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, gardens={stats.GardenStates}, gardenGrowth={stats.GardenGrowthStates}, gardenProduce={stats.GardenProduceStates}, gardenAttach={stats.GardenResourceAttachStates}, feeders={stats.FeederStates}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, comm={stats.CommStationEntries}, resourceNodes={stats.ResourceNodes}, gordos={stats.Gordos}, slots={stats.PuzzleSlots}, depositors={stats.PlortDepositors}.",
+            $"Repair snapshot sent: currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, playerUpgrades={stats.PlayerUpgrades}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, gordos={stats.Gordos}.",
             SrLogTarget.Main);
         LogRepairSnapshot(reason, snapshotId, snapshotStart, pendingBefore, stats);
     }
@@ -161,7 +165,7 @@ public static class WorldStateRepairManager
         var elapsedMs = TicksToMilliseconds(Stopwatch.GetTimestamp() - snapshotStart);
         var pendingAfter = Main.Server.GetPendingReliablePackets();
         var message =
-            $"World repair snapshot #{snapshotId} reason={reason}, duration={elapsedMs:0.0}ms, packets~={stats.EstimatedPackets}, pendingReliable={pendingBefore}->{pendingAfter}, counts=[currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, upgrades={stats.PlayerUpgrades}, refinery={stats.RefineryItems}, plotType={stats.LandPlotTypes}, plotUpgrade={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, garden={stats.GardenStates}, growth={stats.GardenGrowthStates}, produce={stats.GardenProduceStates}, attach={stats.GardenResourceAttachStates}, feeder={stats.FeederStates}, switch={stats.Switches}, door={stats.AccessDoors}, map={stats.MapUnlocks}, comm={stats.CommStationEntries}, nodes={stats.ResourceNodes}, gordo={stats.Gordos}, burst={stats.GordoBursts}, slot={stats.PuzzleSlots}, depositor={stats.PlortDepositors}], categoryMs=[{stats.CategoryTimings}].";
+            $"World repair snapshot #{snapshotId} reason={reason}, duration={elapsedMs:0.0}ms, packets~={stats.EstimatedPackets}, pendingReliable={pendingBefore}->{pendingAfter}, counts=[currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, upgrades={stats.PlayerUpgrades}, switch={stats.Switches}, door={stats.AccessDoors}, map={stats.MapUnlocks}, gordo={stats.Gordos}, burst={stats.GordoBursts}], categoryMs=[{stats.CategoryTimings}].";
 
         if (elapsedMs >= 50d || stats.EstimatedPackets >= 100 || pendingAfter - pendingBefore >= 100)
             SrLogger.LogWarning(message, SrLogTarget.Both);
@@ -232,95 +236,12 @@ public static class WorldStateRepairManager
 
     private static void SendRefinerySnapshot(RepairSnapshotStats stats)
     {
-        var items = RefinerySyncManager.CreateSnapshot(includeZeroCounts: true, logSummary: false);
-        Main.Server.SendToAll(new RefineryItemCountsPacket
-        {
-            Items = items,
-            IsRepairSnapshot = true,
-        });
-
-        stats.RefineryItems = items.Count;
+        // Kept unused — see BroadcastSubsystemSnapshot(Refinery)
     }
 
     private static void SendLandPlotSnapshots(GameModel gameModel, RepairSnapshotStats stats)
     {
-        foreach (var plotEntry in gameModel.landPlots)
-        {
-            var plotId = plotEntry.Key;
-            var plot = plotEntry.Value;
-            if (string.IsNullOrEmpty(plotId) || plot == null)
-                continue;
-
-            Main.Server.SendToAll(new LandPlotUpdatePacket
-            {
-                ID = plotId,
-                IsUpgrade = false,
-                PlotType = plot.typeId,
-                IsRepairSnapshot = true,
-            });
-            stats.LandPlotTypes++;
-
-            if (plot.upgrades != null && plot.upgrades.Count > 0)
-            {
-                foreach (var upgrade in plot.upgrades)
-                {
-                    Main.Server.SendToAll(new LandPlotUpdatePacket
-                    {
-                        ID = plotId,
-                        IsUpgrade = true,
-                        PlotUpgrade = upgrade,
-                        IsRepairSnapshot = true,
-                    });
-                    stats.LandPlotUpgrades++;
-                }
-            }
-
-            foreach (var ammoSet in LandPlotAmmoSyncManager.CreateAmmoSets(plot))
-            {
-                Main.Server.SendToAll(new LandPlotAmmoPacket
-                {
-                    PlotId = plotId,
-                    AmmoSet = ammoSet,
-                    IsRepairSnapshot = true,
-                });
-                stats.AmmoSets++;
-            }
-
-            Main.Server.SendToAll(new LandPlotFeederPacket
-            {
-                PlotId = plotId,
-                State = LandPlotFeederSyncManager.CreateState(plot),
-                IsRepairSnapshot = true,
-            });
-            stats.FeederStates++;
-
-            if (plot.typeId != LandPlot.Id.GARDEN)
-                continue;
-
-            Main.Server.SendToAll(new GardenPlantPacket
-            {
-                ID = plotId,
-                HasCrop = GardenPlotSyncManager.TryGetCurrentCropType(plot, out var cropType),
-                ActorType = cropType,
-                IsRepairSnapshot = true,
-            });
-            stats.GardenStates++;
-
-            if (GardenGrowthSyncManager.TryCreateSnapshot(plot, plotId, out var growthPacket))
-            {
-                growthPacket.IsRepairSnapshot = true;
-                Main.Server.SendToAll(growthPacket);
-                stats.GardenGrowthStates++;
-                stats.GardenProduceStates += growthPacket.ProduceStates.Count;
-            }
-
-        }
-
-        foreach (var attachPacket in GardenResourceAttachSyncManager.CreateGardenSnapshots(gameModel))
-        {
-            Main.Server.SendToAll(attachPacket);
-            stats.GardenResourceAttachStates++;
-        }
+        // Kept unused — see BroadcastSubsystemSnapshot(LandPlots)
     }
 
     private static void SendSwitchSnapshots(GameModel gameModel, RepairSnapshotStats stats)
@@ -369,44 +290,20 @@ public static class WorldStateRepairManager
             return;
         }
 
+        // Delegate to the SubsystemRegistry — same CaptureSnapshot path as Initial-Sync.
         var nodeIds = MapUnlockSyncManager.CreateSnapshot();
         if (nodeIds.Count == 0)
             return;
 
-        Main.Server.SendToAll(new InitialMapPacket
-        {
-            UnlockedNodes = nodeIds,
-            IsRepairSnapshot = true,
-        });
+        SR2MP.Shared.Sync.SubsystemRegistry.Instance
+            .BroadcastSnapshot(SR2MP.Shared.Sync.SubsystemIds.MapUnlock, isRepair: true);
         stats.MapUnlocks = nodeIds.Count;
     }
 
-    private static void SendCommStationSnapshots(RepairSnapshotStats stats)
+    /// <summary>Broadcasts a <see cref="SR2MP.Shared.Sync.SubsystemSnapshotPacket"/> repair for the given subsystem.</summary>
+    private static void BroadcastSubsystemSnapshot(byte subsystemId)
     {
-        var entries = CommStationSyncManager.CreateSnapshot();
-        if (entries.Count == 0)
-            return;
-
-        Main.Server.SendToAll(new CommStationPlayedPacket
-        {
-            Entries = entries,
-            IsRepairSnapshot = true,
-        });
-        stats.CommStationEntries = entries.Count;
-    }
-
-    private static void SendResourceNodeSnapshots(RepairSnapshotStats stats)
-    {
-        var nodes = ResourceNodeSyncManager.CreateSnapshot();
-        if (nodes.Count == 0)
-            return;
-
-        Main.Server.SendToAll(new ResourceNodeStatePacket
-        {
-            Nodes = nodes,
-            IsRepairSnapshot = true,
-        });
-        stats.ResourceNodes = nodes.Count;
+        SR2MP.Shared.Sync.SubsystemRegistry.Instance.BroadcastSnapshot(subsystemId, isRepair: true);
     }
 
     private static void SendGordoSnapshots(GameModel gameModel, RepairSnapshotStats stats)
@@ -440,42 +337,6 @@ public static class WorldStateRepairManager
                 });
                 stats.GordoBursts++;
             }
-        }
-    }
-
-    private static void SendPuzzleSlotSnapshots(GameModel gameModel, RepairSnapshotStats stats)
-    {
-        foreach (var slotEntry in gameModel.slots)
-        {
-            var slot = slotEntry.Value;
-            if (slot == null)
-                continue;
-
-            Main.Server.SendToAll(new PuzzleSlotStatePacket
-            {
-                ID = slotEntry.Key,
-                Filled = slot.filled,
-                IsRepairSnapshot = true,
-            });
-            stats.PuzzleSlots++;
-        }
-    }
-
-    private static void SendPlortDepositorSnapshots(GameModel gameModel, RepairSnapshotStats stats)
-    {
-        foreach (var depositorEntry in gameModel.depositors)
-        {
-            var depositor = depositorEntry.Value;
-            if (depositor == null)
-                continue;
-
-            Main.Server.SendToAll(new PlortDepositorStatePacket
-            {
-                ID = depositorEntry.Key,
-                AmountDeposited = depositor.AmountDeposited,
-                IsRepairSnapshot = true,
-            });
-            stats.PlortDepositors++;
         }
     }
 
@@ -517,46 +378,22 @@ public static class WorldStateRepairManager
         public int CurrencyValues { get; set; }
         public int PediaEntries { get; set; }
         public int PlayerUpgrades { get; set; }
-        public int RefineryItems { get; set; }
-        public int LandPlotTypes { get; set; }
-        public int LandPlotUpgrades { get; set; }
-        public int AmmoSets { get; set; }
-        public int GardenStates { get; set; }
-        public int GardenGrowthStates { get; set; }
-        public int GardenProduceStates { get; set; }
-        public int GardenResourceAttachStates { get; set; }
-        public int FeederStates { get; set; }
         public int Switches { get; set; }
         public int AccessDoors { get; set; }
         public int MapUnlocks { get; set; }
-        public int CommStationEntries { get; set; }
-        public int ResourceNodes { get; set; }
         public int Gordos { get; set; }
         public int GordoBursts { get; set; }
-        public int PuzzleSlots { get; set; }
-        public int PlortDepositors { get; set; }
 
         public int EstimatedPackets =>
             CurrencyValues
-            + 1 // refinery snapshot
+            + 6 // subsystem snapshots (refinery, landplots, gardenattach, commstation, resourcenodes, puzzlestate)
             + 1 // pedia snapshot
             + 1 // player upgrade snapshot
-            + LandPlotTypes
-            + LandPlotUpgrades
-            + AmmoSets
-            + GardenStates
-            + GardenGrowthStates
-            + GardenResourceAttachStates
-            + FeederStates
             + Switches
             + AccessDoors
             + (MapUnlocks > 0 ? 1 : 0)
-            + (CommStationEntries > 0 ? 1 : 0)
-            + (ResourceNodes > 0 ? 1 : 0)
             + Gordos
-            + GordoBursts
-            + PuzzleSlots
-            + PlortDepositors;
+            + GordoBursts;
 
         public string CategoryTimings => string.Join(", ", categoryTimings);
 

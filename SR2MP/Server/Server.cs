@@ -266,29 +266,39 @@ public sealed class Server
         return SendToClient(packet, client.EndPoint);
     }
 
+    // Reused per-call to avoid a heap allocation on every SendToAll.
+    // Only accessed on the main thread.
+    private readonly List<IPEndPoint> _sendToAllEndpoints = new();
+
     public void SendToAll<T>(T packet) where T : IPacket
     {
         var clientCount = clientManager.ClientCount;
+        if (clientCount == 0)
+            return;
+
         var perfStart = PerformanceDiagnostics.IsEnabled ? PerformanceDiagnostics.GetTimestamp() : 0;
         using var writer = new PacketWriter();
         writer.WritePacket(packet);
         byte[] data = writer.ToArray();
         PerformanceDiagnostics.RecordServerSendToAll((byte)packet.Type, packet.Reliability, clientCount, data.Length, PerformanceDiagnostics.GetElapsedTicks(perfStart));
 
-        var readyEndpoints = new List<IPEndPoint>();
+        _sendToAllEndpoints.Clear();
         foreach (var client in clientManager.GetAllClients())
         {
             if (ShouldQueueForInitialSync(client, data, packet.Reliability))
                 continue;
 
-            readyEndpoints.Add(client.EndPoint);
+            _sendToAllEndpoints.Add(client.EndPoint);
         }
 
-        networkManager.Broadcast(data, readyEndpoints, packet.Reliability);
+        networkManager.Broadcast(data, _sendToAllEndpoints, packet.Reliability);
     }
 
     public void SendToAllExcept<T>(T packet, string excludedClientInfo) where T : IPacket
     {
+        if (clientManager.ClientCount == 0)
+            return;
+
         var perfStart = PerformanceDiagnostics.IsEnabled ? PerformanceDiagnostics.GetTimestamp() : 0;
         using var writer = new PacketWriter();
         writer.WritePacket(packet);

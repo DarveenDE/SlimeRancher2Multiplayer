@@ -19,6 +19,9 @@ public sealed class WorldFXHandler : BasePacketHandler<WorldFXPacket>
 
         if (!isSound)
         {
+            if (fxManager.WorldFXMap == null)
+                return;
+
             if (!fxManager.WorldFXMap.TryGetValue(packet.FX, out var fxPrefab) || !fxPrefab)
                 return;
 
@@ -27,6 +30,9 @@ public sealed class WorldFXHandler : BasePacketHandler<WorldFXPacket>
         }
         else
         {
+            if (fxManager.WorldAudioCueMap == null)
+                return;
+
             if (!fxManager.WorldAudioCueMap.TryGetValue(packet.FX, out var cue) || !cue)
                 return;
 

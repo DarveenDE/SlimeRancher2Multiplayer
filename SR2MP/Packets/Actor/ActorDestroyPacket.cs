@@ -3,7 +3,7 @@ using SR2MP.Packets.Utils;
 
 namespace SR2MP.Packets.Actor;
 
-public struct ActorDestroyPacket : IPacket
+public struct ActorDestroyPacket : IPacket, IActorPacket
 {
     public ActorId ActorId { get; set; }
 

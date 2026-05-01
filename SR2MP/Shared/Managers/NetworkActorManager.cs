@@ -276,6 +276,12 @@ public sealed class NetworkActorManager
             gadget.transform.position = position;
             gadget.transform.rotation = rotation;
         }
+        else
+        {
+            SrLogger.LogWarning(
+                $"Gadget spawn: InstantiateGadgetFromModel returned null for actor={actorId.Value} (type={type.name}). Model actorId={model.actorId.Value}. Physical gadget NOT created — client cannot interact with it.",
+                SrLogTarget.Both);
+        }
 
         gadgetModel = model;
         actorManager.Actors[actorId.Value] = model;

@@ -8,9 +8,11 @@ namespace SR2MP.Shared.Managers;
 public static class GardenPlotSyncManager
 {
     private static readonly HashSet<string> PendingPlotIds = new();
-    private static readonly Dictionary<string, PendingGardenState> PendingRemoteStates = new();
     private const float PendingRemoteApplyTimeoutSeconds = 10f;
-    private static bool remoteStateApplyRunning;
+
+    // Centralised pending queue — replaces PendingRemoteStates dict + bool + coroutine.
+    private static readonly PendingApplyQueue<string, PendingGardenState> _pendingQueue =
+        new("GardenPlot", PendingRemoteApplyTimeoutSeconds);
 
     public static void QueueLocalState(LandPlotLocation? location)
     {
@@ -321,53 +323,26 @@ public static class GardenPlotSyncManager
         if (string.IsNullOrWhiteSpace(plotId))
             return;
 
-        PendingRemoteStates[plotId] = new PendingGardenState(plotId, hasCrop, cropType, source);
         SrLogger.LogDebug($"Queued garden state for plot '{plotId}' from {source}; target is not ready yet.", SrLogTarget.Main);
 
-        if (remoteStateApplyRunning)
-            return;
-
-        remoteStateApplyRunning = true;
-        MelonCoroutines.Start(ApplyPendingRemoteStatesWhenReady());
-    }
-
-    private static IEnumerator ApplyPendingRemoteStatesWhenReady()
-    {
-        var timeoutAt = UnityEngine.Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds;
-        while (PendingRemoteStates.Count > 0 && UnityEngine.Time.realtimeSinceStartup < timeoutAt)
-        {
-            var pending = PendingRemoteStates.Values.ToList();
-            foreach (var item in pending)
+        var entry = new PendingGardenState(plotId, hasCrop, cropType, source);
+        _pendingQueue.EnqueueAndStart(
+            plotId,
+            entry,
+            source,
+            (key, data, src) =>
             {
-                handlingPacket = true;
-                try
+                bool result = false;
+                RunWithHandlingPacket(() =>
                 {
-                    if (ApplyRemoteStateNow(
-                            item.PlotId,
-                            item.HasCrop,
-                            item.CropType,
-                            $"{item.Source} retry",
-                            out _))
-                    {
-                        PendingRemoteStates.Remove(item.PlotId);
-                    }
-                }
-                finally { handlingPacket = false; }
-            }
-
-            if (PendingRemoteStates.Count > 0)
-                yield return null;
-        }
-
-        if (PendingRemoteStates.Count > 0)
-        {
-            SrLogger.LogWarning(
-                $"Could not apply {PendingRemoteStates.Count} queued garden state update(s); target models never became ready.",
-                SrLogTarget.Both);
-            PendingRemoteStates.Clear();
-        }
-
-        remoteStateApplyRunning = false;
+                    if (ApplyRemoteStateNow(data.PlotId, data.HasCrop, data.CropType, src, out var shouldRetry))
+                        result = true;
+                    else if (!shouldRetry)
+                        result = true; // invalid — discard
+                });
+                return result;
+            },
+            onRepairNeeded: () => WorldStateRepairManager.RequestRepairSnapshot("garden state apply timeout"));
     }
 
     private sealed class PendingGardenState

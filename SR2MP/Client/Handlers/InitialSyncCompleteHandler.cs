@@ -36,6 +36,10 @@ public sealed class InitialSyncCompleteHandler : BaseClientPacketHandler<Initial
         Client.StartHeartbeat();
         Client.NotifyConnected();
 
+        NetworkSessionState.PhaseGate.TryTransition(
+            SessionPhase.Live,
+            "InitialSyncComplete ACK sent");
+
         SrLogger.LogMessage("Initial sync complete; joined world", SrLogTarget.Both);
     }
 }

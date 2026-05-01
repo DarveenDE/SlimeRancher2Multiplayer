@@ -47,6 +47,13 @@ public sealed class NetworkManager
 
             reliabilityManager = new ReliabilityManager(SendRaw);
             reliabilityManager.PacketFailed += failure => OnReliablePacketFailed?.Invoke(failure);
+            // Server-side gap timeout: request a full repair snapshot so all clients re-sync.
+            reliabilityManager.OrderedStreamGapTimedOut += packetType =>
+            {
+                MainThreadDispatcher.Enqueue(() =>
+                    WorldStateRepairManager.RequestRepairSnapshot(
+                        $"ordered stream gap timeout for {(PacketType)packetType}"));
+            };
             reliabilityManager.Start();
 
             isRunning = true;
@@ -223,6 +230,14 @@ public sealed class NetworkManager
     public OrderedPacketStatus AcceptOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
     {
         return reliabilityManager?.AcceptOrderedPacket(sender, sequenceNumber, packetType) ?? OrderedPacketStatus.Accepted;
+    }
+
+    /// <summary>Accept a ReliableOrdered packet through the true reorder buffer; returns result + packets to dispatch.</summary>
+    public (StreamReceiveResult result, IReadOnlyList<byte[]>? toProcess) AcceptOrderedPacketWithBuffer(
+        IPEndPoint sender, ushort sequenceNumber, byte packetType, byte[] data)
+    {
+        return reliabilityManager?.AcceptOrderedPacketWithBuffer(sender, sequenceNumber, packetType, data)
+               ?? (StreamReceiveResult.Delivered, new[] { data });
     }
 
     public bool ShouldProcessOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)

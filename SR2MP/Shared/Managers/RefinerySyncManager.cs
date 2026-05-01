@@ -1,12 +1,13 @@
 using Il2CppMonomiPark.SlimeRancher.DataModel;
-using MelonLoader;
 
 namespace SR2MP.Shared.Managers;
 
 public static class RefinerySyncManager
 {
-    private static readonly Dictionary<int, int> PendingCounts = new();
-    private static bool pendingApplyRunning;
+    // Singleton-key pending queue (there is at most one pending refinery state at a time).
+    private const byte PendingKey = 0;
+    private static readonly PendingApplyQueue<byte, Dictionary<int, int>> _pendingQueue =
+        new("Refinery", 10f);
 
     public static Dictionary<int, int> CreateSnapshot(bool includeZeroCounts, bool logSummary = true)
     {
@@ -69,15 +70,7 @@ public static class RefinerySyncManager
 
     public static bool ApplyPendingCounts(string source)
     {
-        if (PendingCounts.Count == 0)
-            return false;
-
-        handlingPacket = true;
-        try
-        {
-            return ApplyCountsNow(new Dictionary<int, int>(PendingCounts), source);
-        }
-        finally { handlingPacket = false; }
+        return _pendingQueue.TryDrainForKey(PendingKey);
     }
 
     private static bool ApplyCountsNow(Dictionary<int, int> items, string source)
@@ -137,7 +130,7 @@ public static class RefinerySyncManager
         SrLogger.LogMessage($"Applied {applied}/{items.Count} refinery counts from {source}.", SrLogTarget.Main);
         if (applied > 0 || items.Count == 0)
         {
-            PendingCounts.Clear();
+            _pendingQueue.Clear();
             return true;
         }
 
@@ -227,35 +220,19 @@ public static class RefinerySyncManager
 
     private static void QueuePendingCounts(Dictionary<int, int> items, string source)
     {
-        foreach (var item in items)
-            PendingCounts[item.Key] = item.Value;
-
         SrLogger.LogWarning($"Queued {items.Count} refinery counts from {source}; model is not ready yet.", SrLogTarget.Main);
 
-        if (pendingApplyRunning)
-            return;
-
-        pendingApplyRunning = true;
-        MelonCoroutines.Start(ApplyPendingCountsWhenReady(source));
-    }
-
-    private static System.Collections.IEnumerator ApplyPendingCountsWhenReady(string source)
-    {
-        var timeoutAt = Time.realtimeSinceStartup + 10f;
-        while (PendingCounts.Count > 0 && Time.realtimeSinceStartup < timeoutAt)
-        {
-            if (ApplyPendingCounts($"{source} retry"))
-                break;
-
-            yield return null;
-        }
-
-        if (PendingCounts.Count > 0)
-        {
-            SrLogger.LogWarning($"Could not apply {PendingCounts.Count} queued refinery counts from {source}; model never became ready.", SrLogTarget.Both);
-        }
-
-        pendingApplyRunning = false;
+        _pendingQueue.EnqueueAndStart(
+            PendingKey,
+            new Dictionary<int, int>(items), // defensive copy
+            source,
+            (key, data, src) =>
+            {
+                bool result = false;
+                RunWithHandlingPacket(() => result = ApplyCountsNow(data, src));
+                return result;
+            },
+            onRepairNeeded: () => WorldStateRepairManager.RequestRepairSnapshot("refinery counts apply timeout"));
     }
 
     private static bool TryGetGadgetDirector(out GadgetDirector gadgetDirector)

@@ -19,6 +19,9 @@ public sealed class PlayerFXHandler : BaseClientPacketHandler<PlayerFXPacket>
         {
             if (!isSound)
             {
+                if (fxManager.PlayerFXMap == null)
+                    return;
+
                 if (!fxManager.PlayerFXMap.TryGetValue(packet.FX, out var fxPrefab) || !fxPrefab)
                     return;
 
@@ -27,6 +30,9 @@ public sealed class PlayerFXHandler : BaseClientPacketHandler<PlayerFXPacket>
             }
 
             if (!playerObjects.TryGetValue(packet.Player, out var playerObject) || !playerObject)
+                return;
+
+            if (fxManager.PlayerAudioCueMap == null)
                 return;
 
             if (!fxManager.PlayerAudioCueMap.TryGetValue(packet.FX, out var cue) || !cue)

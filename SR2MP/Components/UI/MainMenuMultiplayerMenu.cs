@@ -43,9 +43,9 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     private string hostPortInput = "1919";
     private string usernameInput = "Player";
     private ServerAddress pendingJoinAddress;
-    private bool confirmingJoin;
     private bool allowCheatsInput;
     private string feedback = string.Empty;
+    private LoadGameBehaviorModel? cachedContinueModel;
 
     public static bool EnsureCreated()
     {
@@ -110,9 +110,12 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void Open()
     {
+        // Cache the Continue model NOW while SR2's MainMenuLandingRootUI is still active.
+        // Once our overlay canvas is shown, SR2 may hide the landing root making it unfindable.
+        cachedContinueModel = FindContinueModel();
+
         SyncInputsFromPreferences();
         activeTab = MainMenuTab.Home;
-        confirmingJoin = false;
         feedback = string.Empty;
         gameObject.SetActive(true);
         RefreshContent();
@@ -121,7 +124,6 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void Close()
     {
-        confirmingJoin = false;
         feedback = string.Empty;
         ClearContent();
         gameObject.SetActive(false);
@@ -266,7 +268,6 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         {
             SyncInputFields();
             activeTab = tab;
-            confirmingJoin = false;
             feedback = string.Empty;
             RefreshContent();
         }, ButtonVisual.Secondary, 0f, true);
@@ -318,6 +319,15 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
             activeTab = MainMenuTab.Join;
             RefreshContent();
         }, ButtonVisual.Secondary);
+
+        // One-click shortcut: always show when a network action is possible.
+        // TryHostLastSave() will surface an error in the menu if no last save is found.
+        if (CanStartNetworkAction())
+        {
+            CreateButton(row.transform, "HomeHostLastSaveButton", "Host Last Save",
+                TryHostLastSave, ButtonVisual.Secondary);
+        }
+
         AddFlexibleSpace(row.transform);
 
         DrawRecentServers();
@@ -367,6 +377,11 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         else
         {
             CreateButton(row.transform, "SelectHostSaveButton", "Select Save", BeginHostSaveSelection, ButtonVisual.Primary);
+
+            // Always show when port is valid and no session is running.
+            // TryHostLastSave() will show feedback if no last save is found at click time.
+            if (validPort && CanStartNetworkAction())
+                CreateButton(row.transform, "HostLastSaveButton", "Host Last Save", TryHostLastSave, ButtonVisual.Secondary);
         }
 
         AddFlexibleSpace(row.transform);
@@ -412,27 +427,23 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void DrawJoin()
     {
-        if (confirmingJoin)
-        {
-            DrawJoinConfirmation();
-            return;
-        }
-
         AddText("Join Server", 28f, Color.white, 42f);
-        AddText("Enter a server address, then choose a client save through SR2's normal Load Game menu.",
-            21f,
-            new Color(0.78f, 0.88f, 0.95f, 1f),
-            86f);
+        AddText("Enter the server address to join.",
+            21f, new Color(0.78f, 0.88f, 0.95f, 1f), 44f);
+        AddText("Your save will be synced with the hosted world. Use a dedicated empty save to avoid losing local progress.",
+            21f, new Color(1f, 0.9f, 0.62f, 1f), 64f);
 
         joinAddressField = AddInputRow("Server address", joinAddressInput, "127.0.0.1:1919", 160);
 
         bool validAddress = ServerAddressParser.TryParse(joinAddressInput, hostPortInput, out var address, out var addressError);
+        bool canStart = CanStartNetworkAction();
+
         if (!validAddress)
             AddText(addressError, 21f, new Color(1f, 0.76f, 0.6f, 1f), 38f);
-        else if (!CanStartNetworkAction())
+        else if (!canStart)
             AddText(GetUnavailableActionText(), 21f, new Color(1f, 0.76f, 0.6f, 1f), 38f);
         else if (MultiplayerLaunchCoordinator.IsJoinSaveSelectionArmed)
-            AddText("Join save selection is armed. Select a client save in SR2's Load Game menu.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
+            AddText("Save selection active \u2013 choose a save in SR2's Load Game menu.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
         else
             AddText($"Ready to join {address.Display}.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
 
@@ -443,9 +454,16 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         }
         else
         {
-            CreateButton(row.transform, "SelectJoinSaveButton", "Select Client Save", HandleJoinPressed, ButtonVisual.Primary, 330f);
-        }
+            // "Join" uses the last save directly. Always show when the address is valid so
+            // TryJoinWithLastSave() can surface a proper error message if no save is found.
+            if (validAddress && canStart)
+                CreateButton(row.transform, "JoinButton", "Join", HandleDirectJoin, ButtonVisual.Primary, 200f);
 
+            CreateButton(row.transform, "SelectSaveButton", "Select Save",
+                HandleChooseSavePressed,
+                (validAddress && canStart) ? ButtonVisual.Secondary : ButtonVisual.Primary,
+                200f);
+        }
         AddFlexibleSpace(row.transform);
 
         DrawRecentServers();
@@ -463,12 +481,6 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
 
         var row = AddRow(58f);
         CreateButton(row.transform, "ConfirmJoinSaveButton", "Select Save", BeginJoinSaveSelection, ButtonVisual.Primary, 260f);
-        CreateButton(row.transform, "BackJoinButton", "Back", () =>
-        {
-            confirmingJoin = false;
-            feedback = string.Empty;
-            RefreshContent();
-        }, ButtonVisual.Secondary, 190f);
         AddFlexibleSpace(row.transform);
     }
 
@@ -516,7 +528,6 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
             {
                 joinAddressInput = recentServer.Display;
                 activeTab = MainMenuTab.Join;
-                confirmingJoin = false;
                 feedback = string.Empty;
                 RefreshContent();
             }, ButtonVisual.Secondary, 420f);
@@ -534,7 +545,107 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    private void HandleJoinPressed()
+    private void BeginJoinSaveSelection()
+    {
+        if (!CanStartNetworkAction())
+        {
+            feedback = GetUnavailableActionText();
+            RefreshContent();
+            return;
+        }
+
+        if (!MultiplayerLaunchCoordinator.BeginJoinSaveSelection(pendingJoinAddress))
+        {
+            feedback = MultiplayerLaunchCoordinator.StatusMessage;
+            RefreshContent();
+            return;
+        }
+
+        Close();
+        OpenNativeLoadGameMenuAfterClose("join");
+    }
+
+    /// <summary>
+    /// Called by the primary "Join" button. Validates the address and then loads the
+    /// last save automatically via ContinueGameBehaviorModel, bypassing manual save selection.
+    /// </summary>
+    [HideFromIl2Cpp]
+    private void HandleDirectJoin()
+    {
+        SyncInputFields();
+        if (!ServerAddressParser.TryParse(joinAddressInput, hostPortInput, out var address, out var error))
+        {
+            feedback = error;
+            RefreshContent();
+            return;
+        }
+
+        if (!CanStartNetworkAction())
+        {
+            feedback = GetUnavailableActionText();
+            RefreshContent();
+            return;
+        }
+
+        TryJoinWithLastSave(address);
+    }
+
+    /// <summary>
+    /// Prepares a join launch using the last played save (ContinueGameBehaviorModel)
+    /// and invokes it directly, so the user lands on the server without choosing a save.
+    /// </summary>
+    [HideFromIl2Cpp]
+    private void TryJoinWithLastSave(ServerAddress address)
+    {
+        var continueModel = cachedContinueModel;
+        if (continueModel == null)
+        {
+            SrLogger.LogMessage("SR2MP TryJoinWithLastSave: no Continue model cached, falling back to Select Save.", SrLogTarget.Both);
+            feedback = "No last save found. Please select a save below.";
+            pendingJoinAddress = address;
+            BeginJoinSaveSelection();
+            return;
+        }
+
+        var summary = continueModel.GameDataSummary;
+        string? gameName = null;
+        string? saveName = null;
+        if (summary != null && !summary.IsInvalid)
+        {
+            var identifier = summary.SaveIdentifier;
+            gameName = identifier?.GameName ?? summary.Name;
+            saveName = identifier?.SaveName ?? summary.SaveName;
+        }
+
+        // PrepareJoin without arming save-selection so OnMainMenuLoadGame does not intercept.
+        MultiplayerLaunchCoordinator.PrepareJoin(gameName, saveName, address);
+
+        SrLogger.LogMessage(
+            $"SR2MP joining {address.Display} with last save '{gameName ?? "?"}/{saveName ?? "?"}' via Continue.",
+            SrLogTarget.Both);
+
+        Close();
+
+        ActionsEUtil.ExecuteInTicks((Action)(() =>
+        {
+            try
+            {
+                continueModel.InvokeBehavior();
+            }
+            catch (Exception ex)
+            {
+                MultiplayerLaunchCoordinator.Cancel("Could not load the last save.");
+                SrLogger.LogWarning($"SR2MP: TryJoinWithLastSave InvokeBehavior failed: {ex}", SrLogTarget.Both);
+            }
+        }), 1);
+    }
+
+    /// <summary>
+    /// Called by the secondary "Select Save" button. Skips the confirmation dialog
+    /// and directly arms the join coordinator, then opens SR2's native Load Game screen.
+    /// </summary>
+    [HideFromIl2Cpp]
+    private void HandleChooseSavePressed()
     {
         SyncInputFields();
         if (!ServerAddressParser.TryParse(joinAddressInput, hostPortInput, out var address, out var error))
@@ -552,33 +663,7 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         }
 
         pendingJoinAddress = address;
-        confirmingJoin = true;
-        feedback = string.Empty;
-        RefreshContent();
-    }
-
-    [HideFromIl2Cpp]
-    private void BeginJoinSaveSelection()
-    {
-        if (!CanStartNetworkAction())
-        {
-            feedback = GetUnavailableActionText();
-            confirmingJoin = false;
-            RefreshContent();
-            return;
-        }
-
-        if (!MultiplayerLaunchCoordinator.BeginJoinSaveSelection(pendingJoinAddress))
-        {
-            feedback = MultiplayerLaunchCoordinator.StatusMessage;
-            confirmingJoin = false;
-            RefreshContent();
-            return;
-        }
-
-        confirmingJoin = false;
-        Close();
-        OpenNativeLoadGameMenuAfterClose("join");
+        BeginJoinSaveSelection();
     }
 
     [HideFromIl2Cpp]
@@ -672,11 +757,134 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     private static bool IsSr2eCustomMainMenuDefinitionType(string? typeName)
         => typeName is "SR2E.Buttons.CustomMainMenuItemDefinition" or "SR2E.Buttons.CustomMainMenuSubItemDefinition";
 
+    /// <summary>
+    /// Tries to find SR2's ContinueGameBehaviorModel (the "Continue" / last-played-save button)
+    /// cast to LoadGameBehaviorModel so InvokeBehavior() can be called on it.
+    /// ContinueGameBehaviorModel inherits LoadGameBehaviorModel, so the cast always succeeds
+    /// when the Continue entry is present. Returns null when no Continue entry exists.
+    /// </summary>
+    [HideFromIl2Cpp]
+    private static LoadGameBehaviorModel? FindContinueModel()
+    {
+        try
+        {
+            // MainMenuLandingRootUI may be inactive when sub-screens are open,
+            // so use FindObjectsOfTypeAll which includes inactive scene objects.
+            var allRoots = Resources.FindObjectsOfTypeAll<MainMenuLandingRootUI>();
+            if (allRoots == null || allRoots.Length == 0)
+            {
+                SrLogger.LogMessage("SR2MP FindContinueModel: no MainMenuLandingRootUI found (active or inactive).", SrLogTarget.Both);
+                return null;
+            }
+
+            var landingRoot = allRoots[0];
+            var models = landingRoot._models;
+            if (models == null || models.Count == 0)
+            {
+                SrLogger.LogMessage($"SR2MP FindContinueModel: found root (active={landingRoot.isActiveAndEnabled}) but _models is null/empty.", SrLogTarget.Both);
+                return null;
+            }
+
+            SrLogger.LogMessage($"SR2MP FindContinueModel: found root (active={landingRoot.isActiveAndEnabled}), scanning {models.Count} models.", SrLogTarget.Both);
+            for (int i = 0; i < models.Count; i++)
+            {
+                var model = models[i];
+                if (model == null)
+                    continue;
+
+                if (model.TryCast<ContinueGameBehaviorModel>() == null)
+                    continue;
+
+                var asLoadGame = model.TryCast<LoadGameBehaviorModel>();
+                SrLogger.LogMessage(
+                    $"SR2MP FindContinueModel: found at index {i}; " +
+                    $"LoadGameCast={(asLoadGame != null ? "ok" : "null")}; " +
+                    $"GameDataSummary={(asLoadGame?.GameDataSummary == null ? "null" : asLoadGame.GameDataSummary.IsInvalid ? "invalid" : "valid")}.",
+                    SrLogTarget.Both);
+                return asLoadGame;
+            }
+
+            SrLogger.LogMessage("SR2MP FindContinueModel: no ContinueGameBehaviorModel in models list.", SrLogTarget.Both);
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogWarning($"SR2MP: FindContinueModel failed: {ex}", SrLogTarget.Both);
+        }
+
+        return null;
+    }
+
+    [HideFromIl2Cpp]
+    private void TryHostLastSave()
+    {
+        SyncInputFields();
+
+        if (!ushort.TryParse(hostPortInput, out ushort hostPort) || hostPort == 0)
+        {
+            feedback = "Invalid port. Use a number from 1 to 65535.";
+            RefreshContent();
+            return;
+        }
+
+        if (!CanStartNetworkAction())
+        {
+            feedback = GetUnavailableActionText();
+            RefreshContent();
+            return;
+        }
+
+        var continueModel = cachedContinueModel;
+        if (continueModel == null)
+        {
+            SrLogger.LogMessage("SR2MP TryHostLastSave: no Continue model cached, falling back to Select Save.", SrLogTarget.Both);
+            feedback = "No last save found. Please select a save below.";
+            BeginHostSaveSelection();
+            return;
+        }
+
+        // Optional: read display name from GameDataSummary for status messages.
+        // The server start itself only needs the port, so a null/invalid summary is fine.
+        var summary = continueModel.GameDataSummary;
+        string? gameName = null;
+        string? saveName = null;
+        if (summary != null && !summary.IsInvalid)
+        {
+            var identifier = summary.SaveIdentifier;
+            gameName = identifier?.GameName ?? summary.Name;
+            saveName = identifier?.SaveName ?? summary.SaveName;
+        }
+
+        var settings = new ServerLaunchSettings { AllowCheats = allowCheatsInput };
+        Main.SetConfigValue("host_port", hostPort.ToString());
+        Main.SetConfigValue("allow_cheats", allowCheatsInput);
+
+        // PrepareHost without arming save-selection so OnMainMenuLoadGame does not interfere.
+        MultiplayerLaunchCoordinator.PrepareHost(gameName, saveName, hostPort, settings);
+
+        SrLogger.LogMessage(
+            $"SR2MP hosting last save '{gameName ?? "?"}/{saveName ?? "?"}' on port {hostPort} via Continue.",
+            SrLogTarget.Both);
+
+        Close();
+
+        ActionsEUtil.ExecuteInTicks((Action)(() =>
+        {
+            try
+            {
+                continueModel.InvokeBehavior();
+            }
+            catch (Exception ex)
+            {
+                MultiplayerLaunchCoordinator.Cancel("Could not load the last save.");
+                SrLogger.LogWarning($"SR2MP: TryHostLastSave InvokeBehavior failed: {ex}", SrLogTarget.Both);
+            }
+        }), 1);
+    }
+
     [HideFromIl2Cpp]
     private void CancelPendingSelection()
     {
         MultiplayerLaunchCoordinator.Cancel("Main-menu multiplayer save selection cancelled.");
-        confirmingJoin = false;
         feedback = "Save selection cancelled.";
         RefreshContent();
     }

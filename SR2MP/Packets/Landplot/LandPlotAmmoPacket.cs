@@ -10,7 +10,7 @@ public sealed class LandPlotAmmoPacket : IPacket
     public bool IsRepairSnapshot { get; set; }
 
     public PacketType Type => PacketType.LandPlotAmmoUpdate;
-    public PacketReliability Reliability => PacketReliability.Reliable;
+    public PacketReliability Reliability => PacketReliability.ReliableOrdered;
 
     public void Serialise(PacketWriter writer)
     {

@@ -73,7 +73,7 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         var ackPacket = new ConnectAckPacket
         {
             PlayerId = playerId,
-            OtherPlayers = Array.ConvertAll(playerManager.GetAllPlayers().ToArray(), input => (input.PlayerId, input.Username)),
+            OtherPlayers = GetPlayersForConnectAck(),
             Money = money,
             RainbowMoney = rainbowMoney,
             AllowCheats = Main.AllowCheats,
@@ -90,11 +90,11 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         yield return null;
 
         SendSwitchesPacket(clientEp, pendingInitialPackets);
-        SendPuzzleStatesPacket(clientEp, pendingInitialPackets);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.PuzzleState);
 
         yield return null;
 
-        SendPlotsPacket(clientEp, pendingInitialPackets);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.LandPlots);
 
         yield return null;
 
@@ -103,15 +103,15 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
 
         yield return null;
 
-        SendGardenResourceAttachments(clientEp, pendingInitialPackets);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.GardenResourceAttach);
 
         yield return null;
 
         SendUpgradesPacket(clientEp, pendingInitialPackets);
-        SendResourceNodesPacket(clientEp, pendingInitialPackets);
-        SendRefineryItemsPacket(clientEp, pendingInitialPackets);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.ResourceNode);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.Refinery);
         SendPediaPacket(clientEp, pendingInitialPackets);
-        SendCommStationPacket(clientEp, pendingInitialPackets);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.CommStation);
         SendMapPacket(clientEp, pendingInitialPackets);
         SendAccessDoorsPacket(clientEp, pendingInitialPackets);
         SendPricesPacket(clientEp, pendingInitialPackets);
@@ -120,6 +120,25 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             $"Initial sync started for player {playerId} from {clientEp}");
 
         yield return SendWeatherAndCompleteInitialSync(clientEp, pendingInitialPackets);
+    }
+
+    private static void SendSubsystemSnapshot(IPEndPoint client, byte subsystemId)
+        => SR2MP.Shared.Sync.SubsystemRegistry.Instance
+            .SendSnapshotToClient(subsystemId, client, isRepair: false);
+
+    private static (string ID, string Username)[] GetPlayersForConnectAck()
+    {
+        var players = playerManager.GetAllPlayers()
+            .Select(input => (input.PlayerId, input.Username))
+            .ToList();
+
+        if (players.All(player => player.PlayerId != LocalID))
+            players.Add((LocalID, Main.Username));
+
+        return players
+            .Where(player => !string.IsNullOrWhiteSpace(player.PlayerId))
+            .Select(player => (player.PlayerId, string.IsNullOrWhiteSpace(player.Username) ? "Player" : player.Username))
+            .ToArray();
     }
 
     private static void SendUpgradesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
@@ -136,40 +155,6 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             Upgrades = upgrades,
         };
         TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(upgradesPacket, client));
-    }
-
-    private static void SendRefineryItemsPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
-    {
-        var packet = new RefineryItemCountsPacket
-        {
-            Items = RefinerySyncManager.CreateSnapshot(includeZeroCounts: true),
-        };
-
-        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(packet, client));
-    }
-
-    private static void SendResourceNodesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
-    {
-        var nodes = ResourceNodeSyncManager.CreateSnapshot();
-        if (nodes.Count == 0)
-            return;
-
-        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(new ResourceNodeStatePacket
-        {
-            Nodes = nodes,
-        }, client));
-    }
-
-    private static void SendCommStationPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
-    {
-        var entries = CommStationSyncManager.CreateSnapshot();
-        if (entries.Count == 0)
-            return;
-
-        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(new CommStationPlayedPacket
-        {
-            Entries = entries,
-        }, client));
     }
 
     private static System.Collections.IEnumerator SendWeatherAndCompleteInitialSync(IPEndPoint client, List<ushort> pendingInitialPackets)
@@ -234,12 +219,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
 
     private static void SendMapPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
-        var mapPacket = new InitialMapPacket
-        {
-            UnlockedNodes = MapUnlockSyncManager.CreateSnapshot()
-        };
-
-        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(mapPacket, client));
+        // Delegate to the SubsystemRegistry — CaptureSnapshot + SubsystemSnapshotPacket.
+        // InitialMapPacket (type 40) is no longer sent for this subsystem.
+        SR2MP.Shared.Sync.SubsystemRegistry.Instance
+            .SendSnapshotToClient(SR2MP.Shared.Sync.SubsystemIds.MapUnlock, client, isRepair: false);
     }
 
     private static void SendAccessDoorsPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
@@ -334,41 +317,6 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         }
     }
 
-    private static void SendGardenResourceAttachments(IPEndPoint client, List<ushort> pendingInitialPackets)
-    {
-        foreach (var packet in GardenResourceAttachSyncManager.CreateGardenSnapshots(SceneContext.Instance.GameModel))
-            TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(packet, client));
-    }
-
-    private static void SendPuzzleStatesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
-    {
-        var slots = new List<InitialPuzzleStatesPacket.PuzzleSlot>();
-        foreach (var slot in SceneContext.Instance.GameModel.slots)
-        {
-            slots.Add(new InitialPuzzleStatesPacket.PuzzleSlot
-            {
-                ID = slot.Key,
-                Filled = slot.Value.filled,
-            });
-        }
-
-        var depositors = new List<InitialPuzzleStatesPacket.PlortDepositor>();
-        foreach (var depositor in SceneContext.Instance.GameModel.depositors)
-        {
-            depositors.Add(new InitialPuzzleStatesPacket.PlortDepositor
-            {
-                ID = depositor.Key,
-                AmountDeposited = depositor.Value.AmountDeposited,
-            });
-        }
-
-        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(new InitialPuzzleStatesPacket
-        {
-            Slots = slots,
-            Depositors = depositors,
-        }, client));
-    }
-
     private static void SendSwitchesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
     {
         var switchesList = new List<InitialSwitchesPacket.Switch>();
@@ -417,46 +365,6 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         };
 
         TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(gordosPacket, client));
-    }
-
-    private static void SendPlotsPacket(IPEndPoint client, List<ushort> pendingInitialPackets)
-    {
-        var plotsList = new List<InitialLandPlotsPacket.BasePlot>();
-
-        foreach (var plotKeyValuePair in SceneContext.Instance.GameModel.landPlots)
-        {
-            var plot = plotKeyValuePair.Value;
-            var id = plotKeyValuePair.Key;
-
-            INetObject? data = plot.typeId switch
-            {
-                LandPlot.Id.GARDEN => new InitialLandPlotsPacket.GardenData
-                {
-                    HasCrop = GardenPlotSyncManager.TryGetCurrentCropType(plot, out var crop),
-                    Crop = crop
-                },
-                LandPlot.Id.SILO => new InitialLandPlotsPacket.SiloData
-                    {},
-                _ => null
-            };
-
-            plotsList.Add(new InitialLandPlotsPacket.BasePlot
-            {
-                ID = id,
-                Type = plot.typeId,
-                Upgrades = plot.upgrades,
-                AmmoSets = LandPlotAmmoSyncManager.CreateAmmoSets(plot),
-                FeederState = LandPlotFeederSyncManager.CreateState(plot),
-                Data = data
-            });
-        }
-
-        var plotsPacket = new InitialLandPlotsPacket
-        {
-            Plots = plotsList
-        };
-
-        TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(plotsPacket, client));
     }
 
     private static void SendPricesPacket(IPEndPoint client, List<ushort> pendingInitialPackets)

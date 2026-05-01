@@ -43,6 +43,8 @@ public sealed class ReliabilityManager
 
     private readonly ConcurrentDictionary<string, int> sequenceNumbersByDestinationAndType = new();
 
+    private readonly OrderedStreamBuffer _streamBuffer = new();
+
     private readonly Action<byte[], IPEndPoint> sendRawCallback;
     private readonly List<string> _toRemove = new();
 
@@ -50,6 +52,16 @@ public sealed class ReliabilityManager
     private volatile bool isRunning;
 
     public event Action<ReliablePacketFailure>? PacketFailed;
+
+    /// <summary>
+    /// Fired when an ordered-stream gap times out; forwards the raw packet-type byte.
+    /// Subscribe to request a targeted repair snapshot for the affected subsystem.
+    /// </summary>
+    public event Action<byte>? OrderedStreamGapTimedOut
+    {
+        add => _streamBuffer.StreamGapTimedOut += value;
+        remove => _streamBuffer.StreamGapTimedOut -= value;
+    }
 
     private static readonly TimeSpan ResendInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan MaxRetryTime = TimeSpan.FromSeconds(10);
@@ -85,6 +97,7 @@ public sealed class ReliabilityManager
         pendingPackets.Clear();
         lastProcessedSequence.Clear();
         sequenceNumbersByDestinationAndType.Clear();
+        _streamBuffer.Clear();
 
         SrLogger.LogMessage("ReliabilityManager stopped", SrLogTarget.Both);
     }
@@ -132,8 +145,26 @@ public sealed class ReliabilityManager
             SrLogTarget.Both);
     }
 
+    /// <summary>
+    /// Accept a <c>ReliableOrdered</c> packet through the true reorder buffer.
+    /// Returns the buffering result plus, when <see cref="StreamReceiveResult.Delivered"/>,
+    /// the list of payloads to dispatch in order (the current packet + any previously-buffered
+    /// consecutive packets that are now unlocked).
+    /// </summary>
+    public (StreamReceiveResult result, IReadOnlyList<byte[]>? toProcess) AcceptOrderedPacketWithBuffer(
+        IPEndPoint sender, ushort sequenceNumber, byte packetType, byte[] data)
+    {
+        return _streamBuffer.Receive(sender, packetType, sequenceNumber, data);
+    }
+
+    /// <summary>
+    /// Legacy in-order check without data buffering.  Kept for call-sites that have not yet been
+    /// migrated to <see cref="AcceptOrderedPacketWithBuffer"/>.
+    /// </summary>
     public OrderedPacketStatus AcceptOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
     {
+        // Without the raw data we cannot buffer the packet, so we fall back to the old
+        // gap-skip behaviour.  Prefer AcceptOrderedPacketWithBuffer where data is available.
         var key = GetSequenceKey(sender, packetType);
 
         if (!lastProcessedSequence.TryGetValue(key, out var lastSequence))
@@ -256,6 +287,9 @@ public sealed class ReliabilityManager
                 {
                     pendingPackets.TryRemove(key, out _);
                 }
+
+                // Check for ordered-stream gaps that have been open too long
+                _streamBuffer.CheckTimeouts();
 
                 // todo: Should not cause problems, if it does, remove
                 Thread.Sleep(10);

@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using Il2CppMonomiPark.SlimeRancher.Weather;
+using Il2CppMonomiPark.SlimeRancher.World;
 using SR2E.Utils;
 using SR2MP.Client.Managers;
 using SR2MP.Packets.Utils;
@@ -9,14 +10,14 @@ namespace SR2MP.Packets.World;
 
 public sealed class WeatherPacket : IPacket
 {
-    public Dictionary<byte, WeatherZoneData> Zones;
+    public Dictionary<string, WeatherZoneData> Zones;
 
     public PacketType Type { get; private init; }
     public PacketReliability Reliability => PacketReliability.Reliable;
 
-    public void Serialise(PacketWriter writer) => writer.WriteDictionary(Zones, PacketWriterDels.Byte, PacketWriterDels.NetObject<WeatherZoneData>.Func);
+    public void Serialise(PacketWriter writer) => writer.WriteDictionary(Zones, PacketWriterDels.String, PacketWriterDels.NetObject<WeatherZoneData>.Func);
 
-    public void Deserialise(PacketReader reader) => Zones = reader.ReadDictionary(PacketReaderDels.Byte, PacketReaderDels.NetObject<WeatherZoneData>.Func);
+    public void Deserialise(PacketReader reader) => Zones = reader.ReadDictionary(PacketReaderDels.String, PacketReaderDels.NetObject<WeatherZoneData>.Func);
 
     public static IEnumerator CreateFromModel(
         WeatherModel model,
@@ -26,13 +27,14 @@ public sealed class WeatherPacket : IPacket
         var packet = new WeatherPacket
         {
             Type = type,
-            Zones = new Dictionary<byte, WeatherZoneData>()
+            Zones = new Dictionary<string, WeatherZoneData>()
         };
-
-        byte zoneId = 0;
 
         foreach (var zone in model._zoneDatas)
         {
+            if (!zone.Key)
+                continue;
+
             var zoneData = new WeatherZoneData
             {
                 WeatherForecasts = new List<WeatherForecast>(),
@@ -52,8 +54,8 @@ public sealed class WeatherPacket : IPacket
                 });
             }
 
-            packet.Zones.Add(zoneId++, zoneData);
-            
+            packet.Zones[GetZoneKey(zone.Key)] = zoneData;
+
             yield return null;
             yield return null;
             yield return null;
@@ -64,6 +66,8 @@ public sealed class WeatherPacket : IPacket
 
         onComplete?.Invoke(packet);
     }
+
+    public static string GetZoneKey(ZoneDefinition zone) => zone ? zone.name : string.Empty;
 }
 
 public sealed class WeatherZoneData : INetObject
@@ -109,4 +113,4 @@ public sealed class WeatherForecast : INetObject
     }
 }
 
-// ZoomedOutUI -> zoneMarkers -> 
+// ZoomedOutUI -> zoneMarkers ->

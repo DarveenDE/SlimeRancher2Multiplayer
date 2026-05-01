@@ -85,10 +85,9 @@ public static class NetworkWeatherManager
                 yield return null;
             }
 
-            byte zoneId = 0;
             foreach (var zoneKey in zoneKeys)
             {
-                if (!packet.Zones.TryGetValue(zoneId, out var data))
+                if (!packet.Zones.TryGetValue(WeatherPacket.GetZoneKey(zoneKey), out var data))
                     continue;
 
                 var zone = registry._zones[zoneKey];
@@ -143,8 +142,6 @@ public static class NetworkWeatherManager
                     yield return null;
                     yield return null;
                 }
-
-                zoneId++;
                 yield return null;
                 yield return null;
             }

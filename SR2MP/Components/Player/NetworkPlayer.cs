@@ -37,6 +37,33 @@ public partial class NetworkPlayer : MonoBehaviour
 
     private float interpolationStart;
     private float interpolationEnd;
+    private bool _interpolationDone;
+
+    private Vector3 _lastColliderRefreshPosition;
+    internal static NetworkPlayer? Local { get; private set; }
+
+    /// <summary>Immediately broadcasts the current player state.
+    /// Call when a new client joins so they receive the host position right away
+    /// rather than waiting up to one timer tick.</summary>
+    internal void SendCurrentState()
+    {
+        if (!IsLocal || camera == null || animator == null)
+            return;
+
+        RemotePlayerManager.SendPlayerUpdate(
+            position: transform.position,
+            rotation: transform.eulerAngles.y,
+            horizontalMovement: animator.GetFloat(HorizontalMovement),
+            forwardMovement: animator.GetFloat(ForwardMovement),
+            yaw: animator.GetFloat(Yaw),
+            airborneState: animator.GetInteger(AirborneState),
+            moving: animator.GetBool(Moving),
+            horizontalSpeed: animator.GetFloat(HorizontalSpeed),
+            forwardSpeed: animator.GetFloat(ForwardSpeed),
+            sprinting: animator.GetBool(Sprinting),
+            lookY: camera.eulerAngles.x
+        );
+    }
 
     public TextMeshPro usernamePanel;
 
@@ -91,6 +118,7 @@ public partial class NetworkPlayer : MonoBehaviour
     {
         if (IsLocal)
         {
+            Local = this;
             camera = GetComponent<SRCharacterController>()._cameraController.transform;
             GetComponent<PlayerItemController>()._vacuumItem.AddComponent<NetworkPlayerSound>();
         }
@@ -137,7 +165,7 @@ public partial class NetworkPlayer : MonoBehaviour
         }
 
         transformTimer -= UnityEngine.Time.unscaledDeltaTime;
-        if (!IsLocal)
+        if (!IsLocal && !_interpolationDone)
         {
             float timer = Mathf.InverseLerp(interpolationStart, interpolationEnd, UnityEngine.Time.unscaledTime);
             timer = Mathf.Clamp01(timer);
@@ -146,6 +174,9 @@ public partial class NetworkPlayer : MonoBehaviour
 
             receivedLookY = Mathf.LerpAngle(previousRotation.y, nextRotation.y, timer);
             transform.eulerAngles = new Vector3(0,  Mathf.LerpAngle(previousRotation.x, nextRotation.x, timer), 0);
+
+            if (timer >= 1f)
+                _interpolationDone = true;
         }
 
         ReloadMeshTransform();
@@ -156,6 +187,7 @@ public partial class NetworkPlayer : MonoBehaviour
         if (IsLocal)
         {
             PerformanceDiagnostics.RecordNetworkPlayerLocalTick();
+
             RemotePlayerManager.SendPlayerUpdate(
                 position: transform.position,
                 rotation: transform.eulerAngles.y,
@@ -176,13 +208,13 @@ public partial class NetworkPlayer : MonoBehaviour
             {
                 var playerAnimatorController = sceneContext.player?.GetComponent<Animator>().runtimeAnimatorController;
 
-                if (animator.runtimeAnimatorController != null)
+                if (playerAnimatorController != null && animator.runtimeAnimatorController != null)
                 {
-                    hasAnimationController = true;
                     animator.runtimeAnimatorController =
                         Instantiate(playerAnimatorController);
                     animator.avatar = sceneContext.player?.GetComponent<Animator>().avatar;
                     SetupAnimations();
+                    hasAnimationController = true;
                 }
             }
 
@@ -193,6 +225,7 @@ public partial class NetworkPlayer : MonoBehaviour
 
             interpolationStart = UnityEngine.Time.unscaledTime;
             interpolationEnd = UnityEngine.Time.unscaledTime + PlayerTimer;
+            _interpolationDone = false;
 
             animator.SetFloat(HorizontalMovement, model.HorizontalMovement);
             animator.SetFloat(ForwardMovement, model.ForwardMovement);
@@ -216,6 +249,11 @@ public partial class NetworkPlayer : MonoBehaviour
 
         if (IsLocal)
             return;
+
+        var pos = transform.position;
+        if (pos == _lastColliderRefreshPosition)
+            return;
+        _lastColliderRefreshPosition = pos;
 
         // This is for the
         collider.enabled = false;

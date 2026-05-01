@@ -22,6 +22,9 @@ public sealed class ActorDestroyHandler : BaseClientPacketHandler<ActorDestroyPa
         var gadget = actor.TryCast<GadgetModel>();
         if (gadget != null)
         {
+            // Pre-populate SentDestroys so that Harmony patches fired during DestroyGadgetModel
+            // do not echo the packet back to the network.
+            GadgetModelSyncManager.MarkDestroyHandled(packet.ActorId.Value);
             var gameObject = actor.GetGameObject();
             RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
             if (gameObject)

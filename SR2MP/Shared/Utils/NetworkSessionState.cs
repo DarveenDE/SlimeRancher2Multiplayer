@@ -4,6 +4,12 @@ namespace SR2MP.Shared.Utils;
 
 public static class NetworkSessionState
 {
+    /// <summary>
+    /// Single gate instance that tracks the client's connection phase and owns echo-suppression.
+    /// Replaces the scattered <c>handlingPacket</c> flag and <c>initialActorLoadInProgress</c> checks.
+    /// </summary>
+    public static readonly SessionPhaseGate PhaseGate = new SessionPhaseGate();
+
     private static int initialActorLoadInProgress;
     private static long assignedActorIdRangeMin;
     private static long assignedActorIdRangeMax;
@@ -49,6 +55,7 @@ public static class NetworkSessionState
         System.Threading.Volatile.Write(ref initialActorLoadInProgress, 0);
         System.Threading.Volatile.Write(ref assignedActorIdRangeMin, 0L);
         System.Threading.Volatile.Write(ref assignedActorIdRangeMax, 0L);
-        handlingPacket = false;
+        PhaseGate.EchoSuppressed = false;
+        PhaseGate.TryTransition(SessionPhase.Disconnected, "ClearTransientSyncState");
     }
 }

@@ -110,6 +110,13 @@ public sealed class Client
             // Initialize reliability manager
             reliabilityManager = new ReliabilityManager(SendRaw);
             reliabilityManager.PacketFailed += HandleReliablePacketFailed;
+            reliabilityManager.OrderedStreamGapTimedOut += packetType =>
+            {
+                // Fire from resend thread — enqueue repair request onto the main thread.
+                MainThreadDispatcher.Enqueue(() =>
+                    WorldStateRepairManager.RequestRepairSnapshot(
+                        $"ordered stream gap timeout for {(PacketType)packetType}"));
+            };
             reliabilityManager.Start();
 
             packetManager.RegisterHandlers();
@@ -138,6 +145,10 @@ public sealed class Client
             };
 
             SendPacket(connectPacket);
+
+            SR2MP.Shared.Utils.NetworkSessionState.PhaseGate.TryTransition(
+                SR2MP.Shared.Utils.SessionPhase.Connecting,
+                $"ConnectPacket sent to {serverIp}:{port}");
 
             OnConnectionStarted?.Invoke(serverIp, port);
 
@@ -354,6 +365,14 @@ public sealed class Client
         return reliabilityManager?.AcceptOrderedPacket(sender, sequenceNumber, packetType) ?? OrderedPacketStatus.Accepted;
     }
 
+    /// <summary>Accept a ReliableOrdered packet through the true reorder buffer; returns result + packets to dispatch.</summary>
+    public (StreamReceiveResult result, IReadOnlyList<byte[]>? toProcess) AcceptOrderedPacketWithBuffer(
+        IPEndPoint sender, ushort sequenceNumber, byte packetType, byte[] data)
+    {
+        return reliabilityManager?.AcceptOrderedPacketWithBuffer(sender, sequenceNumber, packetType, data)
+               ?? (StreamReceiveResult.Delivered, new[] { data });
+    }
+
     public bool ShouldProcessOrderedPacket(IPEndPoint sender, ushort sequenceNumber, byte packetType)
     {
         return reliabilityManager?.ShouldProcessOrderedPacket(sender, sequenceNumber, packetType) ?? true;
@@ -370,6 +389,10 @@ public sealed class Client
         {
             if (!isConnected)
                 return;
+
+            SR2MP.Shared.Utils.NetworkSessionState.PhaseGate.TryTransition(
+                SR2MP.Shared.Utils.SessionPhase.Disconnecting,
+                localMessage != null ? $"Disconnect: {localMessage}" : "Disconnect");
 
             if (MultiplayerUI.Instance)
             {

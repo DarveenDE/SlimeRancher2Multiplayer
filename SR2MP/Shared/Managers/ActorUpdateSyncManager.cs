@@ -1,7 +1,5 @@
-using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using Il2CppMonomiPark.SlimeRancher.Slime;
-using MelonLoader;
 using SR2MP.Packets.Actor;
 
 namespace SR2MP.Shared.Managers;
@@ -9,8 +7,10 @@ namespace SR2MP.Shared.Managers;
 public static class ActorUpdateSyncManager
 {
     private const float PendingUpdateTimeoutSeconds = 3f;
-    private static readonly Dictionary<long, PendingActorUpdate> PendingUpdates = new();
-    private static bool pendingApplyRunning;
+
+    // Centralised pending queue — replaces the per-manager Dictionary + bool + coroutine pattern.
+    private static readonly PendingApplyQueue<long, PendingActorUpdate> _pendingQueue =
+        new("ActorUpdate", PendingUpdateTimeoutSeconds);
 
     public static bool ApplyOrQueue(
         ActorUpdatePacket packet,
@@ -29,22 +29,12 @@ public static class ActorUpdateSyncManager
 
     public static bool ApplyPendingForActor(long actorId)
     {
-        if (!PendingUpdates.TryGetValue(actorId, out var pending))
-            return false;
-
-        if (!TryApply(pending.Packet, $"{pending.Source} retry"))
-            return false;
-
-        PendingUpdates.Remove(actorId);
-        pending.AfterApplied?.Invoke(pending.Packet);
-        SrLogger.LogDebug($"Applied queued actor update for actor {actorId}.", SrLogTarget.Main);
-        return true;
+        return _pendingQueue.TryDrainForKey(actorId);
     }
 
     public static void Clear()
     {
-        PendingUpdates.Clear();
-        pendingApplyRunning = false;
+        _pendingQueue.Clear();
     }
 
     private static bool TryApply(ActorUpdatePacket packet, string source)
@@ -94,52 +84,26 @@ public static class ActorUpdateSyncManager
         if (actorId == 0)
             return;
 
-        if (PendingUpdates.TryGetValue(actorId, out var existing))
-        {
-            existing.Update(packet, afterApplied);
-            return;
-        }
-
-        PendingUpdates[actorId] = new PendingActorUpdate(
-            packet,
-            source,
-            Time.realtimeSinceStartup + PendingUpdateTimeoutSeconds,
-            afterApplied);
-
         SrLogger.LogDebug($"Queued actor update from {source}; actor {actorId} does not exist yet.", SrLogTarget.Main);
 
-        if (pendingApplyRunning)
-            return;
-
-        pendingApplyRunning = true;
-        MelonCoroutines.Start(ApplyPendingUpdatesWhenReady());
-    }
-
-    private static IEnumerator ApplyPendingUpdatesWhenReady()
-    {
-        while (PendingUpdates.Count > 0)
-        {
-            var now = Time.realtimeSinceStartup;
-            var pending = PendingUpdates.Values.ToList();
-            foreach (var item in pending)
+        var entry = new PendingActorUpdate(packet, source, afterApplied);
+        _pendingQueue.EnqueueAndStart(
+            actorId,
+            entry,
+            source,
+            (key, data, src) =>
             {
-                if (ApplyPendingForActor(item.ActorId))
-                    continue;
+                if (!TryApply(data.Packet, src))
+                    return false;
 
-                if (now < item.TimeoutAt)
-                    continue;
-
-                PendingUpdates.Remove(item.ActorId);
-                SrLogger.LogDebug(
-                    $"Dropped queued actor update for actor {item.ActorId}; actor did not spawn within {PendingUpdateTimeoutSeconds:0.#}s.",
-                    SrLogTarget.Main);
-            }
-
-            if (PendingUpdates.Count > 0)
-                yield return null;
-        }
-
-        pendingApplyRunning = false;
+                data.AfterApplied?.Invoke(data.Packet);
+                return true;
+            },
+            // Do NOT request a repair snapshot on timeout: the repair snapshot does not include
+            // actor spawns, so it never resolves a missing actor. Triggering a repair here only
+            // causes periodic ~70 ms main-thread spikes and a burst of 11 reliable packets to the
+            // client every ~15 s, which is the primary cause of the observed 10-second client freeze.
+            onRepairNeeded: null);
     }
 
     private sealed class PendingActorUpdate
@@ -147,25 +111,16 @@ public static class ActorUpdateSyncManager
         public PendingActorUpdate(
             ActorUpdatePacket packet,
             string source,
-            float timeoutAt,
             Action<ActorUpdatePacket>? afterApplied)
         {
             Packet = packet;
             Source = source;
-            TimeoutAt = timeoutAt;
             AfterApplied = afterApplied;
         }
 
-        public long ActorId => Packet.ActorId.Value;
-        public ActorUpdatePacket Packet { get; private set; }
+        public ActorUpdatePacket Packet { get; set; }
         public string Source { get; }
-        public float TimeoutAt { get; }
-        public Action<ActorUpdatePacket>? AfterApplied { get; private set; }
-
-        public void Update(ActorUpdatePacket packet, Action<ActorUpdatePacket>? afterApplied)
-        {
-            Packet = packet;
-            AfterApplied = afterApplied;
-        }
+        public Action<ActorUpdatePacket>? AfterApplied { get; set; }
     }
 }
+

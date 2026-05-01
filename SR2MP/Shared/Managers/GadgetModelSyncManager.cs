@@ -58,6 +58,7 @@ public static class GadgetModelSyncManager
             return;
         }
 
+        SrLogger.LogWarning($"Gadget at {source} has no model; falling back to GetActorId().", SrLogTarget.Main);
         try
         {
             SendLocalGadgetDestroy(gadget.GetActorId(), $"{source}:gadgetActorId");
@@ -68,13 +69,35 @@ public static class GadgetModelSyncManager
         }
     }
 
+    /// <summary>
+    /// Marks <paramref name="actorId"/> as already-handled so that Harmony patches fired
+    /// as a side-effect of processing an incoming <c>ActorDestroyPacket</c> do not echo the
+    /// packet back to the network.  Call this in <c>ActorDestroyHandler</c> before
+    /// calling <c>DestroyGadgetModel</c>.
+    /// </summary>
+    public static void MarkDestroyHandled(long actorId) => SentDestroys.Add(actorId);
+
     public static void SendLocalGadgetDestroy(ActorId actorId, string source)
     {
-        if (!ShouldSendLocalGadgetMutation() || actorId.Value == 0)
+        if (actorId.Value == 0)
+            return;
+
+        // NOTE: we intentionally do NOT check handlingPacket here.
+        // Gadget destroys can legitimately fire as side-effects while a different packet is
+        // being handled (e.g. the game's stacking logic removes an existing gadget when a
+        // new one is instantiated via TrySpawnNetworkGadget).  Suppressing them would leave
+        // the gadget visible on the remote side.
+        // Echo-prevention is handled by MarkDestroyHandled + SentDestroys in ActorDestroyHandler.
+        if (!ShouldSendLocalGadgetDestroy())
             return;
 
         if (!SentDestroys.Add(actorId.Value))
+        {
+            SrLogger.LogMessage(
+                $"Gadget destroy dedup-suppressed actor={actorId.Value} from {source} (already sent this session).",
+                SrLogTarget.Main);
             return;
+        }
 
         SrLogger.LogMessage($"Sending gadget destroy actor={actorId.Value} from {source}.", SrLogTarget.Main);
         Main.SendToAllOrServer(new ActorDestroyPacket
@@ -175,9 +198,32 @@ public static class GadgetModelSyncManager
         });
     }
 
+    /// <summary>
+    /// Clears session-scoped dedup state. Call when a new game context loads (save reloaded,
+    /// new session started) so actor IDs from the previous session do not suppress destroy or
+    /// spawn packets for identically-numbered actors in the new session.
+    /// </summary>
+    public static void Reset()
+    {
+        QueuedOrSentSpawns.Clear();
+        SentDestroys.Clear();
+    }
+
     private static bool ShouldSendLocalGadgetMutation()
     {
         if (handlingPacket || NetworkSessionState.InitialActorLoadInProgress)
+            return false;
+
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected)
+            return false;
+
+        return !SystemContext.Instance.SceneLoader.IsSceneLoadInProgress;
+    }
+
+    // Destroys intentionally omit the handlingPacket check — see SendLocalGadgetDestroy.
+    private static bool ShouldSendLocalGadgetDestroy()
+    {
+        if (NetworkSessionState.InitialActorLoadInProgress)
             return false;
 
         if (!Main.Server.IsRunning() && !Main.Client.IsConnected)

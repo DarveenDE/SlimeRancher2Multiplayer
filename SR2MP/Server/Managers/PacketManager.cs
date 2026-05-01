@@ -21,6 +21,9 @@ public sealed class PacketManager
 
     public void RegisterHandlers()
     {
+        RegisterAuthorityRules();
+        RegisterSubsystems();
+
         var handlerTypes = Main.Core.GetTypes()
             .Where(type => type.GetCustomAttribute<PacketHandlerAttribute>() != null
                         && typeof(IPacketHandler).IsAssignableFrom(type)
@@ -118,14 +121,32 @@ public sealed class PacketManager
 
         if (packetReliability == PacketReliability.ReliableOrdered)
         {
-            switch (networkManager.AcceptOrderedPacket(clientEp, packetSequenceNumber, packetType))
+            var (bufResult, toProcess) = networkManager.AcceptOrderedPacketWithBuffer(
+                clientEp, packetSequenceNumber, packetType, data);
+
+            switch (bufResult)
             {
-                case OrderedPacketStatus.OutOfOrder:
+                case StreamReceiveResult.Duplicate:
+                    SendAck(clientEp, packetId, packetType, isConnectPacket);
                     return;
-                case OrderedPacketStatus.Duplicate:
+                case StreamReceiveResult.Buffered:
+                    // ACK so the sender doesn't resend; dispatch deferred until gap fills.
                     SendAck(clientEp, packetId, packetType, isConnectPacket);
                     return;
             }
+
+            // Delivered: ACK then dispatch this packet plus any newly-unlocked buffered packets.
+            SendAck(clientEp, packetId, packetType, isConnectPacket);
+            var capturedEp = clientEp;
+            foreach (var packetData in toProcess!)
+            {
+                var captured = packetData;
+                if (handlers.TryGetValue(captured[0], out var h))
+                    MainThreadDispatcher.Enqueue(() => h.Handle(captured, capturedEp));
+                else
+                    SrLogger.LogWarning($"No handler found for buffered packet type: {captured[0]}");
+            }
+            return;
         }
 
         // Always ACK reliable packets (even duplicates)
@@ -178,5 +199,55 @@ public sealed class PacketManager
 
         // no need to acknowledge ACK packets
         networkManager.Send(writer.ToArray(), clientEp, PacketReliability.Unreliable);
+    }
+
+    /// <summary>
+    /// Populates <see cref="AuthorityPipeline.Instance"/> with one rule per packet type
+    /// that has non-trivial authority requirements.  Called once at server startup before
+    /// any packets are processed.
+    ///
+    /// Adding a rule here is the *single* place to record who may send what —
+    /// no per-handler ownership checks are needed after this.
+    /// </summary>
+    private static void RegisterAuthorityRules()
+    {
+        var pipeline = AuthorityPipeline.Instance;
+
+        // ActorSpawn: the spawned actor ID must lie in the range assigned to the sender.
+        pipeline.Register(PacketType.ActorSpawn, new RangeOnlyRule());
+
+        // ActorUpdate: only the registered owner may stream updates (throttled log).
+        pipeline.Register(PacketType.ActorUpdate, new OwnerOnlyRule(rejectionLogThrottleSeconds: 5f));
+
+        // ActorDestroy: gadgets are shared (any client); regular actors require ownership.
+        pipeline.Register(PacketType.ActorDestroy, new SharedGadgetOrOwnerRule());
+
+        // ActorTransfer: current owner must be the host or the requesting client.
+        pipeline.Register(PacketType.ActorTransfer, new OwnerOrHostRule());
+
+        // ActorUnload: only the registered owner may unload.
+        pipeline.Register(PacketType.ActorUnload, new OwnerOnlyRule());
+
+        // CurrencyAdjust: client must send a current baseline; stale requests are rejected.
+        pipeline.Register(PacketType.CurrencyAdjust, new CurrencyBaselineRule());
+
+        SrLogger.LogMessage("Authority rules registered.", SrLogTarget.Main);
+    }
+
+    /// <summary>
+    /// Registers all <see cref="ISyncedSubsystem"/> implementations with
+    /// <see cref="SubsystemRegistry.Instance"/>.  Called once at server startup
+    /// before any Initial-Sync begins.
+    /// </summary>
+    private static void RegisterSubsystems()
+    {
+        var registry = SR2MP.Shared.Sync.SubsystemRegistry.Instance;
+        registry.Register(SR2MP.Shared.Sync.MapUnlockSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.CommStationSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.PuzzleStateSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.LandPlotsSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.GardenResourceAttachSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.RefinerySubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.ResourceNodeSubsystem.Instance);
     }
 }

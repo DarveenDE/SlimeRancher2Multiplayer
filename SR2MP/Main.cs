@@ -192,9 +192,12 @@ public sealed class Main : SR2EExpansionV3
     public override void AfterGameContext(GameContext gameContext)
     {
         actorManager.Initialize(gameContext);
+        GadgetModelSyncManager.Reset();
         NetworkSceneManager.Initialize(gameContext);
         NativeMultiplayerMenu.EnsureCreated();
         MultiplayerLaunchCoordinator.TryExecutePendingLaunch(gameContext);
+        Patches.World.OnPuzzleStateChanged.ResetCaches();
+        Patches.Plots.OnGardenSpawnResourcePushed.ResetCache();
 
         // Automatically inserts just by running the constructor.
         multiplayerPauseMenuButton ??= new CustomPauseMenuButton(

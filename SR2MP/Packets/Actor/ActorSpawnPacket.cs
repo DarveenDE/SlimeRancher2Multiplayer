@@ -3,7 +3,7 @@ using SR2MP.Packets.Utils;
 
 namespace SR2MP.Packets.Actor;
 
-public struct ActorSpawnPacket : IPacket
+public struct ActorSpawnPacket : IPacket, IActorPacket
 {
     public ActorId ActorId { get; set; }
     public Quaternion Rotation { get; set; }

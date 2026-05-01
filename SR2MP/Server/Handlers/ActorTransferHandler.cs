@@ -17,8 +17,6 @@ public sealed class ActorTransferHandler : BasePacketHandler<ActorTransferPacket
         if (!clientManager.TryGetClient(clientEp, out var client) || client == null)
             return;
 
-        packet.OwnerPlayer = client.PlayerId;
-
         if (!actorManager.Actors.TryGetValue(packet.ActorId.Value, out var actor))
         {
             SrLogger.LogWarning($"Rejected actor transfer from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} does not exist.", SrLogTarget.Both);
@@ -31,15 +29,11 @@ public sealed class ActorTransferHandler : BasePacketHandler<ActorTransferPacket
             return;
         }
 
-        if (actorManager.TryGetActorOwner(packet.ActorId.Value, out var currentOwner)
-            && currentOwner != LocalID
-            && currentOwner != client.PlayerId)
-        {
-            SrLogger.LogWarning(
-                $"Rejected actor transfer from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} is owned by {currentOwner}.",
-                SrLogTarget.Both);
+        // Authority: current owner must be the host or the requesting client.
+        if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
             return;
-        }
+
+        packet.OwnerPlayer = client.PlayerId;
 
         var vac = SceneContext.Instance.Player.GetComponent<PlayerItemController>()._vacuumItem;
         var gameObject = actor.GetGameObject();

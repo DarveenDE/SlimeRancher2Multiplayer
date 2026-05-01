@@ -16,8 +16,11 @@ public static class GardenGrowthSyncManager
     private static readonly Dictionary<long, GardenGrowthPacket.ProduceStateData> PendingLocalProduceStates = new();
     private static readonly Dictionary<long, float> LastLocalProduceSendTimes = new();
     private static readonly Dictionary<long, int> LastLocalProduceStateHashes = new();
-    private static readonly Dictionary<long, PendingProduceState> PendingProduceStates = new();
-    private static bool remoteProduceApplyRunning;
+
+    // Centralised pending queue — replaces PendingProduceStates dict + bool + coroutine.
+    private static readonly PendingApplyQueue<long, GardenGrowthPacket.ProduceStateData> _pendingProduceQueue =
+        new("GardenGrowthProduce", PendingRemoteApplyTimeoutSeconds);
+
     private static bool localProduceSendRunning;
 
     public static bool TryCreateSnapshot(LandPlotModel model, string plotId, out GardenGrowthPacket packet)
@@ -115,15 +118,7 @@ public static class GardenGrowthSyncManager
 
     public static bool ApplyPendingForActor(long actorId)
     {
-        if (!PendingProduceStates.TryGetValue(actorId, out var pending))
-            return false;
-
-        if (!ApplyProduceStateNow(pending.State, $"{pending.Source} retry"))
-            return false;
-
-        PendingProduceStates.Remove(actorId);
-        SrLogger.LogDebug($"Applied queued garden produce state for actor {actorId}.", SrLogTarget.Main);
-        return true;
+        return _pendingProduceQueue.TryDrainForKey(actorId);
     }
 
     public static void Clear()
@@ -134,8 +129,7 @@ public static class GardenGrowthSyncManager
         PendingLocalProduceStates.Clear();
         LastLocalProduceSendTimes.Clear();
         LastLocalProduceStateHashes.Clear();
-        PendingProduceStates.Clear();
-        remoteProduceApplyRunning = false;
+        _pendingProduceQueue.Clear();
         localProduceSendRunning = false;
     }
 
@@ -375,45 +369,14 @@ public static class GardenGrowthSyncManager
 
     private static void QueueProduceState(GardenGrowthPacket.ProduceStateData state, string source)
     {
-        PendingProduceStates[state.ActorId] = new PendingProduceState(
-            state,
-            source,
-            Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds);
-
         SrLogger.LogDebug($"Queued garden produce state from {source}; actor {state.ActorId} is not ready yet.", SrLogTarget.Main);
 
-        if (remoteProduceApplyRunning)
-            return;
-
-        remoteProduceApplyRunning = true;
-        MelonCoroutines.Start(ApplyPendingProduceStatesWhenReady());
-    }
-
-    private static IEnumerator ApplyPendingProduceStatesWhenReady()
-    {
-        while (PendingProduceStates.Count > 0)
-        {
-            var now = Time.realtimeSinceStartup;
-            var pending = PendingProduceStates.Values.ToList();
-            foreach (var item in pending)
-            {
-                if (ApplyPendingForActor(item.ActorId))
-                    continue;
-
-                if (now < item.TimeoutAt)
-                    continue;
-
-                PendingProduceStates.Remove(item.ActorId);
-                SrLogger.LogDebug(
-                    $"Dropped queued garden produce state for actor {item.ActorId}; actor did not become ready within {PendingRemoteApplyTimeoutSeconds:0.#}s.",
-                    SrLogTarget.Main);
-            }
-
-            if (PendingProduceStates.Count > 0)
-                yield return null;
-        }
-
-        remoteProduceApplyRunning = false;
+        _pendingProduceQueue.EnqueueAndStart(
+            state.ActorId,
+            state,
+            source,
+            (key, data, src) => ApplyProduceStateNow(data, src),
+            onRepairNeeded: () => WorldStateRepairManager.RequestRepairSnapshot("garden produce state apply timeout"));
     }
 
     private static bool IsRepairSource(string source)
@@ -485,33 +448,6 @@ public static class GardenGrowthSyncManager
 
     private static void RunSuppressingLocalBroadcast(Action action)
     {
-        var wasHandlingPacket = handlingPacket;
-        handlingPacket = true;
-        try
-        {
-            action();
-        }
-        finally
-        {
-            handlingPacket = wasHandlingPacket;
-        }
-    }
-
-    private sealed class PendingProduceState
-    {
-        public PendingProduceState(
-            GardenGrowthPacket.ProduceStateData state,
-            string source,
-            float timeoutAt)
-        {
-            State = state;
-            Source = source;
-            TimeoutAt = timeoutAt;
-        }
-
-        public long ActorId => State.ActorId;
-        public GardenGrowthPacket.ProduceStateData State { get; }
-        public string Source { get; }
-        public float TimeoutAt { get; }
+        RunWithHandlingPacket(action);
     }
 }

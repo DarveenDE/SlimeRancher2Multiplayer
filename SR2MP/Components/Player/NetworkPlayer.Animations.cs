@@ -7,6 +7,7 @@ public partial class NetworkPlayer
     private Transform rightArmUpper;
     private Transform rightArmLower;
     private Transform rightHand;
+    private bool hasArmBones;
 
     private void SetupAnimations()
     {
@@ -14,12 +15,14 @@ public partial class NetworkPlayer
         rightArmLower = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
         rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
         rightShoulder = animator.GetBoneTransform(HumanBodyBones.RightShoulder);
+        hasArmBones = rightShoulder && rightArmUpper && rightArmLower && rightHand;
     }
 
     private void AnimateArmY()
     {
         if (IsLocal) return;
         if (!hasAnimationController) return;
+        if (!hasArmBones) return;
 
         rightShoulder.localRotation = Quaternion.Euler(320, 180, -receivedLookY + 89);
         rightHand.localRotation = Quaternion.Euler(90, 180, 0);

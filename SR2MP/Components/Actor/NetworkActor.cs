@@ -106,6 +106,13 @@ public sealed class NetworkActor : MonoBehaviour
         }
     }
 
+    [HideFromIl2Cpp]
+    internal void OverrideActorIdCache(ActorId actorId)
+    {
+        _cachedActorId = actorId;
+        _actorIdCached = actorId.Value != 0;
+    }
+
     public bool LocallyOwned { get; set; }
     private bool cachedLocallyOwned;
 
@@ -117,6 +124,7 @@ public sealed class NetworkActor : MonoBehaviour
 
     private float interpolationStart;
     private float interpolationEnd;
+    private bool _interpolationDone;
 
     private float4 EmotionsFloat => emotions
                                     ? emotions._model.Emotions
@@ -124,6 +132,7 @@ public sealed class NetworkActor : MonoBehaviour
 
     private void Start()
     {
+        syncTimer = UnityEngine.Random.Range(0f, Timers.ActorTimer);
         try
         {
             // Check for components that shouldn't have NetworkActor
@@ -259,12 +268,16 @@ public sealed class NetworkActor : MonoBehaviour
     {
         if (LocallyOwned) return;
         if (isDestroyed) return;
+        if (_interpolationDone) return;
 
         var timer = Mathf.InverseLerp(interpolationStart, interpolationEnd, UnityEngine.Time.unscaledTime);
         timer = Mathf.Clamp01(timer);
 
         transform.position = Vector3.Lerp(previousPosition, nextPosition, timer);
         transform.rotation = Quaternion.Lerp(previousRotation, nextRotation, timer);
+
+        if (timer >= 1f)
+            _interpolationDone = true;
     }
 
     private void Update()
@@ -304,10 +317,12 @@ public sealed class NetworkActor : MonoBehaviour
                 PerformanceDiagnostics.RecordNetworkActorLocalTick();
                 syncTimer = Timers.ActorTimer;
 
-                previousPosition = transform.position;
-                previousRotation = transform.rotation;
-                nextPosition = transform.position;
-                nextRotation = transform.rotation;
+                var currentPosition = transform.position;
+                var currentRotation = transform.rotation;
+                previousPosition = currentPosition;
+                previousRotation = currentRotation;
+                nextPosition = currentPosition;
+                nextRotation = currentRotation;
 
                 var actorId = ActorId;
                 if (actorId.Value == 0)
@@ -316,8 +331,6 @@ public sealed class NetworkActor : MonoBehaviour
                     return;
                 }
 
-                var currentPosition = transform.position;
-                var currentRotation = transform.rotation;
                 var currentVelocity = rigidbody ? rigidbody.velocity : Vector3.zero;
                 var currentEmotions = EmotionsFloat;
 
@@ -349,6 +362,7 @@ public sealed class NetworkActor : MonoBehaviour
 
                 interpolationStart = UnityEngine.Time.unscaledTime;
                 interpolationEnd = UnityEngine.Time.unscaledTime + Timers.ActorTimer;
+                _interpolationDone = false;
             }
         }
         catch (Exception ex)

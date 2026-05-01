@@ -8,10 +8,12 @@ namespace SR2MP.Shared.Managers;
 public static class LandPlotAmmoSyncManager
 {
     private static readonly Dictionary<IntPtr, AmmoModel> PendingLocalAmmoModels = new();
-    private static readonly Dictionary<string, PendingRemoteAmmoSet> PendingRemoteAmmoSets = new();
     private const float PendingRemoteApplyTimeoutSeconds = 10f;
     private static bool localAmmoSendRunning;
-    private static bool remoteAmmoApplyRunning;
+
+    // Centralised pending queue — key is "plotId|ammoSetKey" (compound) to handle per-silo entries.
+    private static readonly PendingApplyQueue<string, PendingRemoteAmmoSet> _pendingQueue =
+        new("LandPlotAmmo", PendingRemoteApplyTimeoutSeconds);
 
     public static List<InitialLandPlotsPacket.AmmoSetData> CreateAmmoSets(LandPlotModel model)
     {
@@ -325,46 +327,21 @@ public static class LandPlotAmmoSyncManager
         if (string.IsNullOrWhiteSpace(plotId) || ammoSet == null)
             return;
 
-        PendingRemoteAmmoSets[$"{plotId}|{ammoSet.Key}"] = new PendingRemoteAmmoSet(plotId, ammoSet, source);
+        var key = $"{plotId}|{ammoSet.Key}";
+        var entry = new PendingRemoteAmmoSet(plotId, ammoSet, source);
         SrLogger.LogDebug($"Queued land plot ammo set '{ammoSet.Key}' for plot '{plotId}' from {source}; target is not ready yet.", SrLogTarget.Main);
 
-        if (remoteAmmoApplyRunning)
-            return;
-
-        remoteAmmoApplyRunning = true;
-        MelonCoroutines.Start(ApplyPendingRemoteAmmoSetsWhenReady());
-    }
-
-    private static System.Collections.IEnumerator ApplyPendingRemoteAmmoSetsWhenReady()
-    {
-        var timeoutAt = UnityEngine.Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds;
-        while (PendingRemoteAmmoSets.Count > 0 && UnityEngine.Time.realtimeSinceStartup < timeoutAt)
-        {
-            var pending = PendingRemoteAmmoSets.Values.ToList();
-            foreach (var item in pending)
+        _pendingQueue.EnqueueAndStart(
+            key,
+            entry,
+            source,
+            (k, data, src) =>
             {
-                handlingPacket = true;
-                try
-                {
-                    if (ApplyAmmoSetNow(item.PlotId, item.AmmoSet, $"{item.Source} retry"))
-                        PendingRemoteAmmoSets.Remove(item.Key);
-                }
-                finally { handlingPacket = false; }
-            }
-
-            if (PendingRemoteAmmoSets.Count > 0)
-                yield return null;
-        }
-
-        if (PendingRemoteAmmoSets.Count > 0)
-        {
-            SrLogger.LogWarning(
-                $"Could not apply {PendingRemoteAmmoSets.Count} queued land plot ammo update(s); target models never became ready.",
-                SrLogTarget.Both);
-            PendingRemoteAmmoSets.Clear();
-        }
-
-        remoteAmmoApplyRunning = false;
+                bool result = false;
+                RunWithHandlingPacket(() => result = ApplyAmmoSetNow(data.PlotId, data.AmmoSet, src));
+                return result;
+            },
+            onRepairNeeded: () => WorldStateRepairManager.RequestRepairSnapshot("land plot ammo apply timeout"));
     }
 
     private sealed class PendingRemoteAmmoSet
@@ -374,12 +351,10 @@ public static class LandPlotAmmoSyncManager
             PlotId = plotId;
             AmmoSet = ammoSet;
             Source = source;
-            Key = $"{plotId}|{ammoSet.Key}";
         }
 
         public string PlotId { get; }
         public InitialLandPlotsPacket.AmmoSetData AmmoSet { get; }
         public string Source { get; }
-        public string Key { get; }
     }
 }

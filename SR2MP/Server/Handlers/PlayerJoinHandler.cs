@@ -60,5 +60,10 @@ public sealed class PlayerJoinHandler : BasePacketHandler<PlayerJoinPacket>
         Main.Server.SendToAll(joinPacket);
         Main.Server.SendToAllExcept(joinChatPacket, clientEp);
         MultiplayerUI.Instance.RegisterSystemMessage($"{packet.PlayerName} joined the world!", $"SYSTEM_JOIN_HOST_{playerId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageConnect);
+
+        // Immediately broadcast the host's current position to all clients (including the
+        // one that just joined). Without this, the new client never receives the host position
+        // if the host hasn't moved since the delta-check suppressed the last periodic update.
+        NetworkPlayer.Local?.SendCurrentState();
     }
 }

@@ -1,6 +1,4 @@
-using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
-using MelonLoader;
 using SR2MP.Packets.Actor;
 
 namespace SR2MP.Shared.Managers;
@@ -15,8 +13,10 @@ public enum ResourceAttachApplyResult
 public static class GardenResourceAttachSyncManager
 {
     private const float PendingRemoteApplyTimeoutSeconds = 10f;
-    private static readonly Dictionary<long, PendingResourceAttach> PendingResourceAttaches = new();
-    private static bool pendingApplyRunning;
+
+    // Centralised pending queue — replaces PendingResourceAttaches dict + bool + coroutine.
+    private static readonly PendingApplyQueue<long, ResourceAttachPacket> _pendingQueue =
+        new("GardenResourceAttach", PendingRemoteApplyTimeoutSeconds);
 
     public static bool TryCreatePacket(ResourceCycle resourceCycle, Joint joint, out ResourceAttachPacket packet)
     {
@@ -137,29 +137,12 @@ public static class GardenResourceAttachSyncManager
 
     public static bool ApplyPendingForActor(long actorId)
     {
-        if (!PendingResourceAttaches.TryGetValue(actorId, out var pending))
-            return false;
-
-        if (ApplyNow(pending.Packet, $"{pending.Source} retry", out var shouldRetry))
-        {
-            PendingResourceAttaches.Remove(actorId);
-            SrLogger.LogDebug($"Applied queued garden resource attach for actor {actorId}.", SrLogTarget.Main);
-            return true;
-        }
-
-        if (!shouldRetry)
-        {
-            PendingResourceAttaches.Remove(actorId);
-            SrLogger.LogDebug($"Dropped queued garden resource attach for actor {actorId}; target is invalid.", SrLogTarget.Main);
-        }
-
-        return false;
+        return _pendingQueue.TryDrainForKey(actorId);
     }
 
     public static void Clear()
     {
-        PendingResourceAttaches.Clear();
-        pendingApplyRunning = false;
+        _pendingQueue.Clear();
     }
 
     private static void AddSpawnerAttachments(
@@ -412,11 +395,35 @@ public static class GardenResourceAttachSyncManager
     {
         shouldRetry = false;
 
-        var resourceCycle = model.GetGameObject()?.GetComponent<ResourceCycle>();
-        if (!resourceCycle)
+        var go = model.GetGameObject();
+        if (!go)
         {
+            // The actor model exists but has no active GameObject. This happens when the
+            // fruit resource lives in a scene group that is not currently loaded (e.g. the
+            // garden is in a zone the client hasn't visited yet). Retrying forever would
+            // only spin until the timeout triggers a full repair snapshot. Instead, only
+            // retry if the joint's plot IS in the current scene — meaning the tree is
+            // loaded and the fruit should eventually have a visible object.
+            var plot = joint.gameObject?.GetComponentInParent<LandPlotLocation>();
+            if (plot == null)
+            {
+                SrLogger.LogDebug(
+                    $"Skipping garden resource attach for actor {model.actorId.Value}; no active GameObject and plot not in current scene.",
+                    SrLogTarget.Main);
+                return false;  // shouldRetry = false → discard silently
+            }
+
             shouldRetry = true;
             return false;
+        }
+
+        var resourceCycle = go.GetComponent<ResourceCycle>();
+        if (!resourceCycle)
+        {
+            SrLogger.LogWarning(
+                $"Skipping garden resource attach for actor {model.actorId.Value}; GameObject exists but has no ResourceCycle.",
+                SrLogTarget.Main);
+            return false;  // permanent failure — discard
         }
 
         RunWithHandlingPacket(() => resourceCycle!.Attach(joint));
@@ -444,61 +451,22 @@ public static class GardenResourceAttachSyncManager
 
     private static void Queue(ResourceAttachPacket packet, string source)
     {
-        PendingResourceAttaches[packet.ActorId.Value] = new PendingResourceAttach(
-            packet,
-            source,
-            Time.realtimeSinceStartup + PendingRemoteApplyTimeoutSeconds);
-
         SrLogger.LogDebug(
             $"Queued garden resource attach from {source}; actor {packet.ActorId.Value} or its joint is not ready yet.",
             SrLogTarget.Main);
 
-        if (pendingApplyRunning)
-            return;
-
-        pendingApplyRunning = true;
-        MelonCoroutines.Start(ApplyPendingWhenReady());
-    }
-
-    private static IEnumerator ApplyPendingWhenReady()
-    {
-        while (PendingResourceAttaches.Count > 0)
-        {
-            var now = Time.realtimeSinceStartup;
-            var pending = PendingResourceAttaches.Values.ToList();
-            foreach (var item in pending)
+        _pendingQueue.EnqueueAndStart(
+            packet.ActorId.Value,
+            packet,
+            source,
+            (key, data, src) =>
             {
-                if (ApplyPendingForActor(item.ActorId))
-                    continue;
-
-                if (now < item.TimeoutAt)
-                    continue;
-
-                PendingResourceAttaches.Remove(item.ActorId);
-                SrLogger.LogDebug(
-                    $"Dropped queued garden resource attach for actor {item.ActorId}; target did not become ready within {PendingRemoteApplyTimeoutSeconds:0.#}s.",
-                    SrLogTarget.Main);
-            }
-
-            if (PendingResourceAttaches.Count > 0)
-                yield return null;
-        }
-
-        pendingApplyRunning = false;
-    }
-
-    private sealed class PendingResourceAttach
-    {
-        public PendingResourceAttach(ResourceAttachPacket packet, string source, float timeoutAt)
-        {
-            Packet = packet;
-            Source = source;
-            TimeoutAt = timeoutAt;
-        }
-
-        public long ActorId => Packet.ActorId.Value;
-        public ResourceAttachPacket Packet { get; }
-        public string Source { get; }
-        public float TimeoutAt { get; }
+                if (ApplyNow(data, src, out var shouldRetry))
+                    return true;  // success
+                if (!shouldRetry)
+                    return true;  // invalid — discard silently
+                return false;     // not ready yet — keep retrying
+            },
+            onRepairNeeded: () => WorldStateRepairManager.RequestRepairSnapshot("resource attach apply timeout"));
     }
 }

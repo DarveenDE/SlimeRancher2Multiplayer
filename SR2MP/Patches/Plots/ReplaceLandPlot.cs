@@ -1,5 +1,6 @@
 using HarmonyLib;
 using SR2MP.Packets.Landplot;
+using SR2MP.Patches.Plots;
 
 namespace SR2MP.Patches.Plots;
 
@@ -11,6 +12,9 @@ public static class ReplaceLandPlot
         if (handlingPacket) return;
 
         if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
+
+        // The SpawnResource (and its model pointer) may have changed after a replace.
+        OnGardenSpawnResourcePushed.ResetCache();
 
         var packet = new LandPlotUpdatePacket
         {
