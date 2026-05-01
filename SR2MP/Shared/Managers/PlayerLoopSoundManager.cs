@@ -7,7 +7,7 @@ namespace SR2MP.Shared.Managers;
 
 public static class PlayerLoopSoundManager
 {
-    private const float SafetyTimeoutSeconds = 12f;
+    private const float SafetyTimeoutSeconds = 1.75f;
     private static readonly Dictionary<string, GameObject> ActiveSounds = new();
     private static readonly Dictionary<string, float> Expirations = new();
 

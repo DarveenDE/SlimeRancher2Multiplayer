@@ -16,10 +16,16 @@ public sealed class ActorUnloadHandler : BaseClientPacketHandler<ActorUnloadPack
             return;
 
         if (!actor.TryGetNetworkComponent(out var component))
+        {
+            actorManager.ClearActorOwner(packet.ActorId.Value);
             return;
+        }
 
         if (!component.regionMember || component.regionMember._hibernating)
+        {
+            actorManager.ClearActorOwner(packet.ActorId.Value);
             return;
+        }
 
         var ownershipPacket = new ActorTransferPacket
         {

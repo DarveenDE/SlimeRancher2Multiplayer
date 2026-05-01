@@ -22,18 +22,23 @@ public sealed class ActorUnloadHandler : BasePacketHandler<ActorUnloadPacket>
             return;
         }
 
-        if (!actor.TryGetNetworkComponent(out var component))
-        {
-            SrLogger.LogWarning($"Rejected actor unload from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} has no network component.", SrLogTarget.Both);
-            return;
-        }
-
         // Authority: only the registered owner may unload.
         if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
             return;
 
-        if (!component.regionMember)
+        if (!actor.TryGetNetworkComponent(out var component))
+        {
+            actorManager.ClearActorOwner(packet.ActorId.Value);
+            Main.Server.SendToAllExcept(packet, clientEp);
             return;
+        }
+
+        if (!component.regionMember)
+        {
+            actorManager.ClearActorOwner(packet.ActorId.Value);
+            Main.Server.SendToAllExcept(packet, clientEp);
+            return;
+        }
 
         if (!component.regionMember._hibernating)
         {

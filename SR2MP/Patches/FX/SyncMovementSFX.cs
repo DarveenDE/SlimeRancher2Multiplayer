@@ -1,5 +1,6 @@
 using HarmonyLib;
 using Il2CppMonomiPark.SlimeRancher.Player.CharacterController;
+using Il2CppMonomiPark.SlimeRancher.Player.CharacterController.Abilities;
 using SR2MP.Packets.FX;
 
 namespace SR2MP.Patches.FX;
@@ -13,20 +14,14 @@ public static class SyncMovementSfx
            || cueName.Contains("Step")
            || cueName.Contains("Land");
 
-    private static bool IsPlayerLoopSound(string cueName)
-        => cueName.Contains("Jet", StringComparison.OrdinalIgnoreCase)
-           || cueName.Contains("Thrust", StringComparison.OrdinalIgnoreCase);
-
-    private static string NormalizeCueName(string cueName) => cueName.Replace(' ', '_');
-
     public static void Postfix(SRCharacterController __instance, SECTR_AudioCue cue)
     {
         if (handlingPacket || !cue)
             return;
 
-        if (IsPlayerLoopSound(cue.name))
+        if (JetpackLoopSoundSync.IsJetpackCue(cue))
         {
-            SendPlayerLoopSound(cue, true);
+            JetpackLoopSoundSync.SendState(cue, true);
             return;
         }
 
@@ -36,7 +31,7 @@ public static class SyncMovementSfx
 
         var packet = new MovementSoundPacket
         {
-            CueName = NormalizeCueName(cue.name),
+            CueName = JetpackLoopSoundSync.NormalizeCueName(cue.name),
             Position = __instance.Position,
         };
 
@@ -49,29 +44,48 @@ public static class SyncMovementSfx
             Main.Client.SendPacket(packet);
         }
     }
+}
 
-    internal static void SendPlayerLoopSound(SECTR_AudioCue cue, bool isPlaying)
+[HarmonyPatch(typeof(JetpackAbilityBehavior), "UpdateJetpackRunAudio")]
+public static class SyncJetpackLoopSoundState
+{
+    public static void Postfix(JetpackAbilityBehavior __instance)
+        => SyncFromInstance(__instance);
+
+    internal static void SyncFromInstance(JetpackAbilityBehavior __instance)
     {
+        if (handlingPacket || __instance == null)
+            return;
+
+        var cue = __instance._runCue;
         if (!cue)
             return;
 
-        var packet = new PlayerLoopSoundPacket
-        {
-            Player = LocalID,
-            CueName = NormalizeCueName(cue.name),
-            IsPlaying = isPlaying,
-            Volume = 0.8f,
-        };
-
-        if (Main.Server.IsRunning())
-        {
-            Main.Server.SendToAll(packet);
-        }
-        else if (Main.Client.IsConnected)
-        {
-            Main.Client.SendPacket(packet);
-        }
+        var instance = __instance._runCueInstance;
+        var isPlaying = instance != null && instance.Active && !instance.Paused;
+        JetpackLoopSoundSync.SendState(cue, isPlaying);
     }
+}
+
+[HarmonyPatch(typeof(JetpackAbilityBehavior), nameof(JetpackAbilityBehavior.Update), typeof(float))]
+public static class SyncJetpackLoopSoundUpdateAbility
+{
+    public static void Postfix(JetpackAbilityBehavior __instance)
+        => SyncJetpackLoopSoundState.SyncFromInstance(__instance);
+}
+
+[HarmonyPatch(typeof(JetpackAbilityBehavior), nameof(JetpackAbilityBehavior.Stop))]
+public static class SyncJetpackLoopSoundStopAbility
+{
+    public static void Postfix(JetpackAbilityBehavior __instance)
+        => JetpackLoopSoundSync.SendStopped(__instance?._runCue);
+}
+
+[HarmonyPatch(typeof(JetpackAbilityBehavior), nameof(JetpackAbilityBehavior.OnDisable))]
+public static class SyncJetpackLoopSoundDisableAbility
+{
+    public static void Postfix(JetpackAbilityBehavior __instance)
+        => JetpackLoopSoundSync.SendStopped(__instance?._runCue);
 }
 
 [HarmonyPatch(typeof(SECTR_PointSource), nameof(SECTR_PointSource.Stop))]
@@ -91,7 +105,7 @@ public static class SyncPlayerLoopSoundStop
         if (!IsLocalPlayerSource(__instance))
             return;
 
-        SyncMovementSfx.SendPlayerLoopSound(__instance.Cue, false);
+        JetpackLoopSoundSync.SendStopped(__instance.Cue);
     }
 
     private static bool IsLocalPlayerSource(SECTR_PointSource source)
@@ -101,5 +115,66 @@ public static class SyncPlayerLoopSoundStop
 
         var playerTransform = SceneContext.Instance.player.transform;
         return source.transform == playerTransform || source.transform.IsChildOf(playerTransform);
+    }
+}
+
+internal static class JetpackLoopSoundSync
+{
+    private const float RefreshIntervalSeconds = 0.75f;
+    private static bool lastKnownPlaying;
+    private static string lastCueName = string.Empty;
+    private static float nextRefreshAt;
+
+    internal static bool IsJetpackCue(SECTR_AudioCue cue)
+        => cue
+           && (cue.name.Contains("Jet", StringComparison.OrdinalIgnoreCase)
+               || cue.name.Contains("Thrust", StringComparison.OrdinalIgnoreCase));
+
+    internal static string NormalizeCueName(string cueName) => cueName.Replace(' ', '_');
+
+    internal static void SendState(SECTR_AudioCue? cue, bool isPlaying, bool force = false)
+    {
+        if (handlingPacket || !cue)
+            return;
+
+        var cueName = NormalizeCueName(cue!.name);
+        var now = UnityEngine.Time.realtimeSinceStartup;
+        var cueChanged = !string.Equals(lastCueName, cueName, StringComparison.Ordinal);
+        var shouldRefresh = isPlaying && now >= nextRefreshAt;
+
+        if (!force && !cueChanged && lastKnownPlaying == isPlaying && !shouldRefresh)
+            return;
+
+        lastCueName = cueName;
+        lastKnownPlaying = isPlaying;
+        nextRefreshAt = isPlaying ? now + RefreshIntervalSeconds : 0f;
+
+        SendPacket(cueName, isPlaying);
+    }
+
+    internal static void SendStopped(SECTR_AudioCue? cue)
+        => SendState(cue, false, force: true);
+
+    private static void SendPacket(string cueName, bool isPlaying)
+    {
+        if (string.IsNullOrWhiteSpace(cueName))
+            return;
+
+        var packet = new PlayerLoopSoundPacket
+        {
+            Player = LocalID,
+            CueName = cueName,
+            IsPlaying = isPlaying,
+            Volume = 0.8f,
+        };
+
+        if (Main.Server.IsRunning())
+        {
+            Main.Server.SendToAll(packet);
+        }
+        else if (Main.Client.IsConnected)
+        {
+            Main.Client.SendPacket(packet);
+        }
     }
 }

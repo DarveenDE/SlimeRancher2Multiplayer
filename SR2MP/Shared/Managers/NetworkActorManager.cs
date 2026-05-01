@@ -54,27 +54,24 @@ public sealed class NetworkActorManager
             if (!gameModel)
                 continue;
 
+            TrackKnownActorsFromGameModel(gameModel!);
+
             var scene = SystemContext.Instance.SceneLoader.CurrentSceneGroup;
 
             foreach (var actor in gameModel!.identifiables)
             {
-                if (actor.value.ident.IsPlayer)
-                    continue;
-
-                if (actor.value.TryCast<ActorModel>() == null)
+                if (!IsNetworkedActorModel(actor.value, includeGadgets: false))
                     continue;
 
                 var obj = actor.value.GetGameObject();
                 if (!obj)
                     continue;
                 Object.Destroy(obj);
-                Actors.Remove(actor.value.actorId.Value);
-                ClearActorOwner(actor.value.actorId.Value);
             }
 
             foreach (var actor2 in gameModel.identifiables)
             {
-                if (actor2.value.ident.IsPlayer)
+                if (!IsNetworkedActorModel(actor2.value, includeGadgets: false))
                     continue;
 
                 var model = actor2.value.TryCast<ActorModel>();
@@ -87,6 +84,9 @@ public sealed class NetworkActorManager
 
                 if (actor2.value.sceneGroup != scene)
                     continue;
+                if (model.GetGameObject())
+                    continue;
+
                 GameObject obj = null!;
                 RunWithHandlingPacket(() => obj = InstantiationHelpers.InstantiateActorFromModel(model));
 
@@ -107,6 +107,44 @@ public sealed class NetworkActorManager
 
             yield return TakeOwnershipOfNearby();
         }
+    }
+
+    private static void TrackKnownActorsFromGameModel(GameModel gameModel)
+    {
+        var knownActorIds = new HashSet<long>();
+
+        foreach (var actor in gameModel.identifiables)
+        {
+            if (!IsNetworkedActorModel(actor.value, includeGadgets: true))
+                continue;
+
+            var actorId = actor.value.actorId.Value;
+            if (actorId == 0)
+                continue;
+
+            knownActorIds.Add(actorId);
+            actorManager.Actors[actorId] = actor.value;
+        }
+
+        foreach (var actorId in actorManager.Actors.Keys.ToArray())
+        {
+            if (knownActorIds.Contains(actorId))
+                continue;
+
+            actorManager.Actors.Remove(actorId);
+            actorManager.ClearActorOwner(actorId);
+        }
+    }
+
+    private static bool IsNetworkedActorModel(IdentifiableModel? actor, bool includeGadgets)
+    {
+        if (actor == null || !actor.ident || actor.ident.IsPlayer)
+            return false;
+
+        if (actor.TryCast<ActorModel>() != null)
+            return true;
+
+        return includeGadgets && actor.TryCast<GadgetModel>() != null;
     }
 
     private static bool ActorIDAlreadyInUse(ActorId id)

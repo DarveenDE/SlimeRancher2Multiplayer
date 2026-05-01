@@ -16,12 +16,15 @@ public sealed class ActorTransferHandler : BaseClientPacketHandler<ActorTransfer
         if (!actorManager.Actors.TryGetValue(packet.ActorId.Value, out var actor))
             return;
 
+        if (!string.IsNullOrWhiteSpace(packet.OwnerPlayer))
+            actorManager.SetActorOwner(packet.ActorId.Value, packet.OwnerPlayer);
+
         if (!actor.TryGetNetworkComponent(out var component))
             return;
 
         var vac = SceneContext.Instance.Player.GetComponent<PlayerItemController>()._vacuumItem;
         var gameObject = actor.GetGameObject();
-        if (vac._held == gameObject)
+        if (gameObject && vac._held == gameObject)
         {
             vac.LockJoint.connectedBody = null;
             vac._held = null;
@@ -32,8 +35,5 @@ public sealed class ActorTransferHandler : BaseClientPacketHandler<ActorTransfer
 
         var ownsActor = packet.OwnerPlayer == Client.OwnPlayerId;
         component.LocallyOwned = ownsActor;
-
-        if (!string.IsNullOrWhiteSpace(packet.OwnerPlayer))
-            actorManager.SetActorOwner(packet.ActorId.Value, packet.OwnerPlayer);
     }
 }

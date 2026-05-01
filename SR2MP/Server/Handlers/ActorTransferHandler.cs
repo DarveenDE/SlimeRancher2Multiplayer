@@ -23,30 +23,28 @@ public sealed class ActorTransferHandler : BasePacketHandler<ActorTransferPacket
             return;
         }
 
-        if (!actor.TryGetNetworkComponent(out var component))
-        {
-            SrLogger.LogWarning($"Rejected actor transfer from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} has no network component.", SrLogTarget.Both);
-            return;
-        }
-
         // Authority: current owner must be the host or the requesting client.
         if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
             return;
 
         packet.OwnerPlayer = client.PlayerId;
 
-        var vac = SceneContext.Instance.Player.GetComponent<PlayerItemController>()._vacuumItem;
-        var gameObject = actor.GetGameObject();
-        if (vac._held == gameObject)
+        if (actor.TryGetNetworkComponent(out var component))
         {
-            vac.LockJoint.connectedBody = null;
-            vac._held = null;
-            vac.SetHeldRad(0f);
-            vac._vacMode = VacuumItem.VacMode.NONE;
-            gameObject.GetComponent<Vacuumable>().Release();
+            var vac = SceneContext.Instance.Player.GetComponent<PlayerItemController>()._vacuumItem;
+            var gameObject = actor.GetGameObject();
+            if (gameObject && vac._held == gameObject)
+            {
+                vac.LockJoint.connectedBody = null;
+                vac._held = null;
+                vac.SetHeldRad(0f);
+                vac._vacMode = VacuumItem.VacMode.NONE;
+                gameObject.GetComponent<Vacuumable>().Release();
+            }
+
+            component.LocallyOwned = false;
         }
 
-        component.LocallyOwned = false;
         actorManager.SetActorOwner(packet.ActorId.Value, client.PlayerId);
 
         Main.Server.SendToAll(packet);

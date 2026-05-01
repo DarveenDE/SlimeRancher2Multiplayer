@@ -206,6 +206,9 @@ public sealed class NetworkActor : MonoBehaviour
         {
             if (value)
             {
+                if (!LocallyOwned)
+                    yield break;
+
                 LocallyOwned = false;
 
                 var actorId = ActorId;
