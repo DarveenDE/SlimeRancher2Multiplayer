@@ -14,15 +14,19 @@ public sealed class RefineryItemCountsHandler : BasePacketHandler<RefineryItemCo
 
     protected override void Handle(RefineryItemCountsPacket packet, IPEndPoint senderEndPoint)
     {
+        bool applied;
         try
         {
             handlingPacket = true;
-            RefinerySyncManager.ApplyCounts(packet.Items, "server refinery counts");
+            applied = RefinerySyncManager.ApplyCounts(packet.Items, "server refinery counts");
         }
         finally
         {
             handlingPacket = false;
         }
+
+        if (!applied)
+            return;
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);

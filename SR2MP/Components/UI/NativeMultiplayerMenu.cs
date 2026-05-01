@@ -1215,7 +1215,19 @@ public sealed class NativeMultiplayerMenu : SR2EMenu
             ? "Could not connect to the hosted world."
             : message.Trim();
 
+        if (IsCompatibilityFailure(baseMessage))
+            return baseMessage;
+
         return $"{baseMessage} Check that the host is running, the address and port are correct, and firewall or tunnel settings allow the connection.";
+    }
+
+    [HideFromIl2Cpp]
+    private static bool IsCompatibilityFailure(string message)
+    {
+        return message.Contains("SR2MP protocol mismatch", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("protocol handshake", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("version target mismatch", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("same current SR2MP test DLL", StringComparison.OrdinalIgnoreCase);
     }
 
     private void HandleClientConnectionStarted(string address, int port)

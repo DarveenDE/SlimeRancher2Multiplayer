@@ -73,12 +73,13 @@ These are follow-up notes from a source review of the current SR2MP networking c
 - Impact: state-changing reliable packets can silently desync sender and receiver.
 - Possible direction: surface a failure event to client/server code. For critical packets, disconnect or trigger a resync instead of continuing silently.
 
-## P2: No protocol/version handshake
+## P2: Protocol/version handshake
 
 - File: `SR2MP/Packets/Loading/ConnectPacket.cs`
 - Problem: connect only carries player id and username.
 - Impact: mismatched DLLs can deserialize invalid packet layouts or fail unclearly, especially during active development.
 - Possible direction: include mod version, protocol version, required game version, and possibly feature flags in connect/ack. Reject incompatible clients with a readable UI message.
+- Local status: fixed with a protocol/game-target handshake on `ConnectPacket` and `ConnectAckPacket`, plus a `ConnectRejectPacket` path for readable host-side rejection.
 
 ## Smaller follow-ups
 
@@ -86,4 +87,4 @@ These are follow-up notes from a source review of the current SR2MP networking c
 - Add backpressure or per-frame limits to `MainThreadDispatcher` so network bursts cannot stall a frame indefinitely.
 - Review `PlayerJoinHandler`: `SendToAllExcept(joinChatPacket, playerId)` passes a player id to a method that appears to expect an endpoint-info string.
 - Consider central packet metadata so reliability, ordering, and sender rules are defined in one place instead of spread across packet classes and handlers.
-- Add a protocol/version handshake before shipping any test DLLs to both players; recent local packet-layout changes require both machines to run the same DLL.
+- Bump `NetworkProtocol.ProtocolVersion` whenever packet layouts or initial-sync expectations become incompatible.

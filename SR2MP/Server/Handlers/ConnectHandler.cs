@@ -26,10 +26,37 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         SrLogger.LogMessage($"Connect request received with PlayerId: {packet.PlayerId}",
             $"Connect request from {clientEp} with PlayerId: {packet.PlayerId}");
 
+        if (!NetworkProtocol.TryValidatePeer("host", "client", packet.ProtocolVersion, packet.RequiredGameVersion, out var rejectMessage))
+        {
+            RejectConnection(clientEp, rejectMessage);
+            SrLogger.LogWarning(
+                $"Rejected connect request from {clientEp}: {rejectMessage} ClientMod={packet.ModVersion}",
+                SrLogTarget.Both);
+            return;
+        }
+
+        if (!string.Equals(packet.ModVersion, NetworkProtocol.ModVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            SrLogger.LogWarning(
+                $"Client {clientEp} is using SR2MP {packet.ModVersion}; host is using {NetworkProtocol.ModVersion}. Protocol is compatible, continuing.",
+                SrLogTarget.Both);
+        }
+
         if (!clientManager.TryAddClient(clientEp, packet.PlayerId, out _))
             return;
 
         MelonCoroutines.Start(HandleInitialSync(packet.PlayerId, clientEp));
+    }
+
+    private static void RejectConnection(IPEndPoint clientEp, string message)
+    {
+        Main.Server.SendToClient(new ConnectRejectPacket
+        {
+            Message = message,
+            ServerProtocolVersion = NetworkProtocol.ProtocolVersion,
+            ServerModVersion = NetworkProtocol.ModVersion,
+            ServerRequiredGameVersion = NetworkProtocol.RequiredGameVersion,
+        }, clientEp);
     }
 
     // Spreads data collection across frames so no single frame is overloaded on the host.
@@ -49,7 +76,10 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             OtherPlayers = Array.ConvertAll(playerManager.GetAllPlayers().ToArray(), input => (input.PlayerId, input.Username)),
             Money = money,
             RainbowMoney = rainbowMoney,
-            AllowCheats = Main.AllowCheats
+            AllowCheats = Main.AllowCheats,
+            ProtocolVersion = NetworkProtocol.ProtocolVersion,
+            ModVersion = NetworkProtocol.ModVersion,
+            RequiredGameVersion = NetworkProtocol.RequiredGameVersion
         };
         TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(ackPacket, clientEp));
 

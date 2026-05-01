@@ -20,6 +20,8 @@ public sealed class PacketReader : IDisposable
         _reader = new BinaryReader(_stream, Encoding.UTF8);
     }
 
+    public long RemainingBytes => _stream.Length - _stream.Position;
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public byte ReadByte() => _reader.ReadByte();
 

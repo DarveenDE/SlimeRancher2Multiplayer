@@ -9,9 +9,9 @@ Current local test target:
 - Slime Rancher 2: `1.2.0`
 - MelonLoader: `0.7.3-ci.2494 Open-Beta`
 - SR2E: `3.7.0`
-- SR2MP protocol: actively changing during development
+- SR2MP protocol: `1`
 
-Packet layouts have changed in this fork, so mixing this build with the original mod or an older local test build can cause broken joins, empty snapshots, or save-state desync.
+Packet layouts have changed in this fork, so mixing this build with the original mod or an older local test build can cause broken joins, empty snapshots, or save-state desync. Newer local builds include a protocol/game-target handshake so mismatched hosts and clients are rejected with a readable join error.
 
 ## Save Warning
 
@@ -41,7 +41,7 @@ Legend:
 | Plort collectors | 🟡 | Initial and live storage count sync added. Needs broader playtesting. |
 | Auto-feeders | 🟡 | Storage state and feeder speed/state sync added. Needs broader playtesting. |
 | Landplot upgrades | ✅ | Existing upgrade sync retained. |
-| Refinery item counts | ⏳ | Initial/live count sync and repair snapshots are present, but refinery/fabricator counts still need focused two-player validation. |
+| Refinery item counts | 🟡 | Initial/live count sync, ordered count packets, post-fabrication full snapshots, and repair snapshots are present. Needs focused two-player validation. |
 | Plort puzzle statues/depositors | 🟡 | Initial and live slot/depositor state sync added. Needs more door/puzzle coverage testing. |
 | Access doors | 🟡 | Initial and live door state sync improved. |
 | Gordos | ✅ | Seen/eaten state sync improved so hidden map markers should stay hidden until discovered. |
@@ -62,8 +62,10 @@ Legend:
 - Updated the mod to load against Slime Rancher 2 `1.2.0`.
 - Added a safer initial-sync completion flow for joining clients.
 - Hardened reliable ordered packet handling, packet chunk validation, and server-side endpoint checks.
+- Added a protocol/version handshake so incompatible SR2MP test DLLs are rejected during join instead of starting a bad sync.
 - Added remote player map and compass markers.
 - Added or improved sync for gardens, landplot ammo/storage, auto-feeders, refinery item counts, puzzle statues/depositors, access doors, and Gordo seen state.
+- Hardened refinery/fabricator count sync with ordered packets and full snapshots after successful fabricator spends.
 - Added live placement and demolish sync for player-placed gadgets/build-mode objects.
 - Added comm station conversation played/read sync.
 - Added host-authoritative resource node/ore state sync.

@@ -19,6 +19,9 @@ public static class OnRefineryItemCountChanged
         if (!__0)
             return;
 
+        if (!RefinerySyncManager.IsRefineryItem(__0))
+            return;
+
         Main.SendToAllOrServer(new RefineryItemCountsPacket
         {
             Items = new Dictionary<int, int>

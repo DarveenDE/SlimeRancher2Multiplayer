@@ -8,7 +8,7 @@ public sealed class RefineryItemCountsPacket : IPacket
     public bool IsRepairSnapshot { get; set; }
 
     public PacketType Type => PacketType.RefineryItemCounts;
-    public PacketReliability Reliability => PacketReliability.Reliable;
+    public PacketReliability Reliability => PacketReliability.ReliableOrdered;
 
     public void Serialise(PacketWriter writer)
     {
@@ -24,6 +24,6 @@ public sealed class RefineryItemCountsPacket : IPacket
         Items = reader.ReadDictionary(
             static packetReader => packetReader.ReadInt(),
             static packetReader => packetReader.ReadInt());
-        IsRepairSnapshot = reader.ReadBool();
+        IsRepairSnapshot = reader.RemainingBytes > 0 && reader.ReadBool();
     }
 }

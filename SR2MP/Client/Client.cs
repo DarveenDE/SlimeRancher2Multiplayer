@@ -126,7 +126,10 @@ public sealed class Client
             var connectPacket = new ConnectPacket
             {
                 PlayerId = OwnPlayerId,
-                Username = Main.Username
+                Username = Main.Username,
+                ProtocolVersion = NetworkProtocol.ProtocolVersion,
+                ModVersion = NetworkProtocol.ModVersion,
+                RequiredGameVersion = NetworkProtocol.RequiredGameVersion
             };
 
             SendPacket(connectPacket);
@@ -445,6 +448,21 @@ public sealed class Client
         }
 
         OnConnected?.Invoke(OwnPlayerId);
+    }
+
+    internal void RejectConnection(string message)
+    {
+        string finalMessage = string.IsNullOrWhiteSpace(message)
+            ? "The host rejected the connection."
+            : message;
+
+        shownConnectionError = true;
+        MultiplayerUI.Instance?.RegisterSystemMessage(
+            finalMessage,
+            $"SYSTEM_JOIN_REJECTED_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+            MultiplayerUI.SystemMessageClose);
+        NotifyConnectionFailed(finalMessage);
+        Disconnect(finalMessage, true);
     }
 
     private void NotifyConnectionFailed(string message)

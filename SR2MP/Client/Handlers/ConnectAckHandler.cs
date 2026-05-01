@@ -3,6 +3,7 @@ using SR2MP.Shared.Managers;
 using SR2MP.Components.Player;
 using SR2MP.Packets.Loading;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Client.Handlers;
 
@@ -14,6 +15,22 @@ public sealed class ConnectAckHandler : BaseClientPacketHandler<ConnectAckPacket
 
     protected override void Handle(ConnectAckPacket packet)
     {
+        if (!NetworkProtocol.TryValidatePeer("your client", "host", packet.ProtocolVersion, packet.RequiredGameVersion, out var rejectMessage))
+        {
+            SrLogger.LogWarning(
+                $"Rejected hosted world during handshake: {rejectMessage} HostMod={packet.ModVersion}",
+                SrLogTarget.Both);
+            Client.RejectConnection(rejectMessage);
+            return;
+        }
+
+        if (!string.Equals(packet.ModVersion, NetworkProtocol.ModVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            SrLogger.LogWarning(
+                $"Host is using SR2MP {packet.ModVersion}; client is using {NetworkProtocol.ModVersion}. Protocol is compatible, continuing.",
+                SrLogTarget.Both);
+        }
+
         SrLogger.LogMessage($"Connection acknowledged by server; waiting for initial sync (PlayerId: {packet.PlayerId})",
             SrLogTarget.Both);
 

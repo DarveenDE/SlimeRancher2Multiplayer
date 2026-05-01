@@ -1,6 +1,6 @@
 # SR2MP TODO
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 ## Build and Tooling
 
@@ -37,12 +37,14 @@ Last updated: 2026-04-30
 - [x] Prefer host state as authoritative for world storage counts while still accepting client interaction events.
 - [x] Add host repair snapshots for event-only world states: land plot type/upgrades, switches, access doors, map unlocks, and gordos.
 - [x] Queue actor movement updates that arrive before the referenced actor exists locally instead of dropping them silently.
+- [x] Harden refinery/fabricator count sync with ordered packets, apply-before-rebroadcast, and post-fabrication full snapshots.
 - [ ] Run a focused two-player sync test and record repair-log findings for the known unstable areas.
 - [x] Add garden growth and harvest state sync beyond planted crop type.
 - [x] Add live gadget/build-mode placement sync for player-placed gadgets.
 - [x] Throttle/coalesce garden growth sync and suppress unchanged actor updates to avoid long-session packet floods.
 - [x] Remove remote player map/compass marker re-registration churn that could drag down FPS over time.
 - [x] Harden packet handlers against stale client input, missing Unity components, and stuck echo-suppression flags.
+- [x] Add a protocol/game-target handshake so mismatched SR2MP test DLLs fail with a clear join error.
 - [ ] Define stricter host-authoritative validation for client-triggered pedia unlocks, player upgrades, and fast-forward requests.
 - [ ] Replace ReliableOrdered gap-skipping with a real reorder buffer if strict ordered delivery becomes important for more packet types.
 - [ ] Test known desync areas with two players: silos, refinery/fabricator counts, gardens, auto-feeders, plort collectors, plort depositors, gadget placement, and overnight FPS stability.
