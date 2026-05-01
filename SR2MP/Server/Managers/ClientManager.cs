@@ -21,7 +21,7 @@ public sealed class ClientManager
 
     public bool TryGetClient(IPEndPoint endPoint, out ClientInfo? client)
     {
-        string clientInfo = $"{endPoint.Address}:{endPoint.Port}";
+        string clientInfo = GetClientInfo(endPoint);
         return TryGetClient(clientInfo, out client);
     }
 
@@ -41,7 +41,7 @@ public sealed class ClientManager
 
     public bool TryAddClient(IPEndPoint endPoint, string playerId, out ClientInfo client)
     {
-        string clientInfo = $"{endPoint.Address}:{endPoint.Port}";
+        string clientInfo = GetClientInfo(endPoint);
         client = null!;
 
         if (!PlayerIdGenerator.IsValidPlayerId(playerId))
@@ -113,7 +113,7 @@ public sealed class ClientManager
 
     public bool RemoveClient(IPEndPoint endPoint)
     {
-        string clientInfo = $"{endPoint.Address}:{endPoint.Port}";
+        string clientInfo = GetClientInfo(endPoint);
         return RemoveClient(clientInfo);
     }
 
@@ -124,6 +124,8 @@ public sealed class ClientManager
             client.UpdateHeartbeat();
         }
     }
+
+    public void UpdateHeartbeat(IPEndPoint endPoint) => UpdateHeartbeat(GetClientInfo(endPoint));
 
     public List<ClientInfo> GetAllClients()
     {
@@ -142,6 +144,9 @@ public sealed class ClientManager
         var timedOut = GetTimedOutClients();
         foreach (var client in timedOut)
         {
+            SrLogger.LogWarning(
+                $"Client timed out: {client.PlayerId} ({client.GetClientInfo()})",
+                SrLogTarget.Both);
             RemoveClient(client.GetClientInfo());
         }
     }
@@ -158,4 +163,6 @@ public sealed class ClientManager
 
         SrLogger.LogMessage("All clients cleared", SrLogTarget.Both);
     }
+
+    private static string GetClientInfo(IPEndPoint endPoint) => $"{endPoint.Address}:{endPoint.Port}";
 }

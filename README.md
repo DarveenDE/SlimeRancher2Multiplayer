@@ -63,6 +63,7 @@ Legend:
 - Added a safer initial-sync completion flow for joining clients.
 - Hardened reliable ordered packet handling, packet chunk validation, and server-side endpoint checks.
 - Added a protocol/version handshake so incompatible SR2MP test DLLs are rejected during join instead of starting a bad sync.
+- Restored heartbeat/timeout cleanup so dead clients and lost hosts stop lingering as active sessions.
 - Added remote player map and compass markers.
 - Added or improved sync for gardens, landplot ammo/storage, auto-feeders, refinery item counts, puzzle statues/depositors, access doors, and Gordo seen state.
 - Hardened refinery/fabricator count sync with ordered packets and full snapshots after successful fabricator spends.

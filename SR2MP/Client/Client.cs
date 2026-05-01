@@ -24,6 +24,7 @@ public sealed class Client
     private volatile bool connectionAcknowledged;
     private Timer? connectionTimeoutTimer;
     private const int ConnectionTimeoutSeconds = 30;
+    private long lastServerHeartbeatTicks;
 
     private bool shownConnectionError;
     private int disconnectInProgress;
@@ -72,6 +73,7 @@ public sealed class Client
         {
             shownConnectionError = false;
             connectionAcknowledged = false;
+            RecordServerHeartbeat();
             LastConnectionError = string.Empty;
 
             IPAddress parsedIp = IPAddress.Parse(serverIp);
@@ -242,10 +244,15 @@ public sealed class Client
         SrLogger.LogMessage("Client ReceiveLoop ended!", SrLogTarget.Both);
     }
 
-    internal static void StartHeartbeat()
+    internal void StartHeartbeat()
     {
-        // Removed this temporarily because there are no Handlers
-        // heartbeatTimer = new Timer(SendHeartbeat, null, TimeSpan.FromSeconds(215), TimeSpan.FromSeconds(215));
+        RecordServerHeartbeat();
+        heartbeatTimer?.Dispose();
+        heartbeatTimer = new Timer(
+            SendHeartbeat,
+            null,
+            TimeSpan.Zero,
+            TimeSpan.FromSeconds(HeartbeatSettings.IntervalSeconds));
     }
 
     private void SendHeartbeat(object? state)
@@ -253,9 +260,26 @@ public sealed class Client
         if (!isConnected)
             return;
 
+        if (connectionAcknowledged && IsServerHeartbeatTimedOut())
+        {
+            const string message = "Connection to the hosted world timed out.";
+            SrLogger.LogWarning(
+                $"Server heartbeat timed out after {HeartbeatSettings.TimeoutSeconds} seconds.",
+                SrLogTarget.Both);
+            shownConnectionError = true;
+            MultiplayerUI.Instance?.RegisterSystemMessage(
+                message,
+                $"SYSTEM_SERVER_TIMEOUT_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                MultiplayerUI.SystemMessageClose);
+            NotifyConnectionFailed(message);
+            Disconnect(message, true);
+            return;
+        }
+
         var heartbeatPacket = new EmptyPacket
         {
-            Type = PacketType.Heartbeat
+            Type = PacketType.Heartbeat,
+            Reliability = PacketReliability.Unreliable,
         };
 
         SendPacket(heartbeatPacket);
@@ -440,6 +464,7 @@ public sealed class Client
     {
         connectionAcknowledged = true;
         LastConnectionError = string.Empty;
+        RecordServerHeartbeat();
 
         if (connectionTimeoutTimer != null)
         {
@@ -448,6 +473,17 @@ public sealed class Client
         }
 
         OnConnected?.Invoke(OwnPlayerId);
+    }
+
+    internal void NotifyHeartbeatAck() => RecordServerHeartbeat();
+
+    private void RecordServerHeartbeat()
+        => System.Threading.Interlocked.Exchange(ref lastServerHeartbeatTicks, DateTime.UtcNow.Ticks);
+
+    private bool IsServerHeartbeatTimedOut()
+    {
+        var lastHeartbeat = new DateTime(System.Threading.Interlocked.Read(ref lastServerHeartbeatTicks), DateTimeKind.Utc);
+        return DateTime.UtcNow - lastHeartbeat > TimeSpan.FromSeconds(HeartbeatSettings.TimeoutSeconds);
     }
 
     internal void RejectConnection(string message)

@@ -1,5 +1,6 @@
 using System.Net;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Server.Models;
 
@@ -37,7 +38,7 @@ public sealed class ClientInfo
     public void UpdateHeartbeat() => LastHeartbeat = DateTime.UtcNow;
 
     public bool IsTimedOut()
-        => (DateTime.UtcNow - LastHeartbeat).TotalSeconds > 30;
+        => (DateTime.UtcNow - LastHeartbeat).TotalSeconds > HeartbeatSettings.TimeoutSeconds;
 
     public string GetClientInfo() => $"{EndPoint.Address}:{EndPoint.Port}";
 

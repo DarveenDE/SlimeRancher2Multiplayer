@@ -38,6 +38,7 @@ Last updated: 2026-05-01
 - [x] Add host repair snapshots for event-only world states: land plot type/upgrades, switches, access doors, map unlocks, and gordos.
 - [x] Queue actor movement updates that arrive before the referenced actor exists locally instead of dropping them silently.
 - [x] Harden refinery/fabricator count sync with ordered packets, apply-before-rebroadcast, and post-fabrication full snapshots.
+- [x] Restore heartbeat packets and timeout cleanup for dead clients or lost hosts.
 - [ ] Run a focused two-player sync test and record repair-log findings for the known unstable areas.
 - [x] Add garden growth and harvest state sync beyond planted crop type.
 - [x] Add live gadget/build-mode placement sync for player-placed gadgets.

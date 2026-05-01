@@ -65,8 +65,11 @@ public sealed class Server
             Application.quitting += new Action(Close);
             networkManager.Start(port, enableIPv6);
             this.Port = port;
-            // Commented because we don't need this yet
-            // timeoutTimer = new Timer(CheckTimeouts, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+            timeoutTimer = new Timer(
+                CheckTimeouts,
+                null,
+                TimeSpan.FromSeconds(HeartbeatSettings.TimeoutCheckSeconds),
+                TimeSpan.FromSeconds(HeartbeatSettings.TimeoutCheckSeconds));
             OnServerStarted?.Invoke();
             if (MultiplayerUI.Instance)
             {
@@ -115,17 +118,17 @@ public sealed class Server
         SrLogger.LogMessage($"Player left broadcast sent for: {client.PlayerId}", SrLogTarget.Both);
     }
 
-    // private void CheckTimeouts(object? state)
-    // {
-    //     try
-    //     {
-    //         clientManager.RemoveTimedOutClients();
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         SrLogger.LogError($"Error checking timeouts: {ex}");
-    //     }
-    // }
+    private void CheckTimeouts(object? state)
+    {
+        try
+        {
+            clientManager.RemoveTimedOutClients();
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogError($"Error checking client timeouts: {ex}", SrLogTarget.Both);
+        }
+    }
 
     public void Close()
     {

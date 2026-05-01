@@ -56,7 +56,7 @@ These are follow-up notes from a source review of the current SR2MP networking c
 - Impact: clients can load a mixed state: part snapshot, part live updates.
 - Local status: fixed with a joining/syncing state. Reliable live broadcasts are queued per syncing client and flushed after the client receives the initial snapshot and replies with `InitialSyncCompleteAck`; unreliable live updates are skipped during sync and resume naturally afterward.
 
-## P2: Dead clients are not timed out
+## P2: Dead-client timeout
 
 - Files:
   - `SR2MP/Client/Client.cs`
@@ -65,6 +65,7 @@ These are follow-up notes from a source review of the current SR2MP networking c
 - Problem: heartbeat sending and server timeout checks are currently disabled.
 - Impact: if a player crashes or the tunnel dies, the server can keep stale client/player objects indefinitely.
 - Possible direction: restore heartbeat/ack handling with a short timeout and clean leave broadcast on timeout.
+- Local status: fixed with client heartbeat sends, server heartbeat ACKs, server-side dead-client removal, and client-side lost-host timeout handling.
 
 ## P2: Reliable send failure only logs and forgets
 
