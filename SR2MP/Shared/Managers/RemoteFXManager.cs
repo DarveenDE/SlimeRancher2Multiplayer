@@ -24,7 +24,9 @@ public sealed class RemoteFXManager
         if (cue.name.Contains("Step")
             || cue.name.Contains("Run")
             || cue.name.Contains("Jump")
-            || cue.name.Contains("Land"))
+            || cue.name.Contains("Land")
+            || cue.name.Contains("Jet", StringComparison.InvariantCultureIgnoreCase)
+            || cue.name.Contains("Thrust", StringComparison.InvariantCultureIgnoreCase))
         {
             return true;
         }
