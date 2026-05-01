@@ -267,6 +267,8 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
     {
         var actorsList = new List<InitialActorsPacket.Actor>();
         var skipped = 0;
+        PlayerIdGenerator.GetClientActorIdRange(playerIndex, out var minActorId, out var maxActorId);
+        var startingActorId = NetworkActorManager.GetNextActorIdInRange(minActorId, maxActorId);
 
         foreach (var actorKeyValuePair in SceneContext.Instance.GameModel.identifiables)
         {
@@ -282,12 +284,14 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
 
         var actorsPacket = new InitialActorsPacket
         {
-            StartingActorID = (uint)NetworkActorManager.GetNextActorIdInRange(playerIndex * 10000, (playerIndex * 10000) + 10000),
+            StartingActorID = (uint)startingActorId,
+            ActorIdRangeMin = minActorId,
+            ActorIdRangeMax = maxActorId,
             Actors = actorsList
         };
 
         SrLogger.LogMessage(
-            $"Initial actor snapshot prepared for {client}: actors={actorsList.Count}, skipped={skipped}",
+            $"Initial actor snapshot prepared for {client}: actors={actorsList.Count}, skipped={skipped}, assignedRange=[{minActorId}, {maxActorId}), startingId={startingActorId}",
             SrLogTarget.Both);
 
         TrackPendingPacket(pendingInitialPackets, Main.Server.SendToClient(actorsPacket, client));

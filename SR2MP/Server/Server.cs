@@ -40,6 +40,8 @@ public sealed class Server
     }
 
     public int GetClientCount() => clientManager.ClientCount;
+    public bool AllClientsInitialSyncComplete() => clientManager.AllInitialSyncComplete;
+    public int GetInitialSyncIncompleteClientCount() => clientManager.InitialSyncIncompleteCount;
 
     public bool IsRunning() => networkManager.IsRunning;
 

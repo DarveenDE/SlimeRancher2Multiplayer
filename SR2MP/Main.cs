@@ -38,6 +38,22 @@ public sealed class Main : SR2EExpansionV3
     public static bool PacketSizeLogging => preferences.GetEntry<bool>("packet_size_log").Value;
     public static bool PerformanceDiagnosticsEnabled => preferences.GetEntry<bool>("performance_diagnostics").Value;
     public static bool AllowCheats => preferences.GetEntry<bool>("allow_cheats").Value;
+    public static bool PeriodicWorldRepairEnabled => preferences.GetEntry<bool>("periodic_full_world_repair").Value;
+    public static bool SyncDiagnosticsEnabled => preferences.GetEntry<bool>("sync_diagnostics").Value;
+    public static bool VerboseSyncDiagnosticsEnabled
+    {
+        get
+        {
+            try
+            {
+                return preferences != null && preferences.GetEntry<bool>("verbose_sync_diagnostics").Value;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
     // Made this because of a bug in the server handler of ActorSpawnPacket where TrySpawnNetworkActor
     // was given `packet.Type` instead of `packet.ActorType` causing it to always be RockPlort (persistent id 25)
@@ -58,6 +74,9 @@ public sealed class Main : SR2EExpansionV3
 
         preferences.CreateEntry("packet_size_log", false, display_name: "Packet Size Logging");
         preferences.CreateEntry("performance_diagnostics", false, display_name: "Performance Diagnostics");
+        preferences.CreateEntry("sync_diagnostics", true, display_name: "Sync Diagnostics");
+        preferences.CreateEntry("verbose_sync_diagnostics", false, display_name: "Verbose Sync Diagnostics");
+        preferences.CreateEntry("periodic_full_world_repair", false, display_name: "Periodic Full World Repair");
 
         preferences.CreateEntry("internal_setup_ui", true, is_hidden: true);
 

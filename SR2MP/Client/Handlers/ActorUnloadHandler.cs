@@ -21,8 +21,6 @@ public sealed class ActorUnloadHandler : BaseClientPacketHandler<ActorUnloadPack
         if (!component.regionMember || component.regionMember._hibernating)
             return;
 
-        component.LocallyOwned = true;
-
         var ownershipPacket = new ActorTransferPacket
         {
             ActorId = packet.ActorId,

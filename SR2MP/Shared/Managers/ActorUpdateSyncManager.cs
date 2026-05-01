@@ -90,16 +90,23 @@ public static class ActorUpdateSyncManager
         string source,
         Action<ActorUpdatePacket>? afterApplied)
     {
-        if (packet.ActorId.Value == 0)
+        var actorId = packet.ActorId.Value;
+        if (actorId == 0)
             return;
 
-        PendingUpdates[packet.ActorId.Value] = new PendingActorUpdate(
+        if (PendingUpdates.TryGetValue(actorId, out var existing))
+        {
+            existing.Update(packet, afterApplied);
+            return;
+        }
+
+        PendingUpdates[actorId] = new PendingActorUpdate(
             packet,
             source,
             Time.realtimeSinceStartup + PendingUpdateTimeoutSeconds,
             afterApplied);
 
-        SrLogger.LogDebug($"Queued actor update from {source}; actor {packet.ActorId.Value} does not exist yet.", SrLogTarget.Main);
+        SrLogger.LogDebug($"Queued actor update from {source}; actor {actorId} does not exist yet.", SrLogTarget.Main);
 
         if (pendingApplyRunning)
             return;
@@ -150,9 +157,15 @@ public static class ActorUpdateSyncManager
         }
 
         public long ActorId => Packet.ActorId.Value;
-        public ActorUpdatePacket Packet { get; }
+        public ActorUpdatePacket Packet { get; private set; }
         public string Source { get; }
         public float TimeoutAt { get; }
-        public Action<ActorUpdatePacket>? AfterApplied { get; }
+        public Action<ActorUpdatePacket>? AfterApplied { get; private set; }
+
+        public void Update(ActorUpdatePacket packet, Action<ActorUpdatePacket>? afterApplied)
+        {
+            Packet = packet;
+            AfterApplied = afterApplied;
+        }
     }
 }

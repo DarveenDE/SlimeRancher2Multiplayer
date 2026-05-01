@@ -24,6 +24,7 @@ public sealed class ReliablePacketFailure
 
 public sealed class ReliabilityManager
 {
+    private static readonly TimeSpan AckWarningThreshold = TimeSpan.FromSeconds(1);
     private sealed class PendingPacket
     {
         public byte[][] Chunks { get; set; } = null!;
@@ -118,6 +119,14 @@ public sealed class ReliabilityManager
         if (!pendingPackets.TryRemove(key, out var packet))
             return;
         var latency = DateTime.UtcNow - packet.FirstSendTime;
+        if (Main.SyncDiagnosticsEnabled
+            && (latency >= AckWarningThreshold || packet.SendCount > 1))
+        {
+            SrLogger.LogWarning(
+                $"Delayed ACK from {sender}: packet={packetId}, type={(PacketType)packet.PacketType}, reliability={packet.Reliability}, latency={latency.TotalMilliseconds:0}ms, sends={packet.SendCount}, pendingReliable={pendingPackets.Count}.",
+                SrLogTarget.Both);
+        }
+
         SrLogger.LogPacketSize(
             $"ACK received for packet {packetId} (type={packetType}) after {packet.SendCount} sends, latency={latency.TotalMilliseconds:F1}ms",
             SrLogTarget.Both);
@@ -225,6 +234,13 @@ public sealed class ReliabilityManager
 
                         packet.LastSendTime = now;
                         packet.SendCount++;
+
+                        if (Main.SyncDiagnosticsEnabled && packet.SendCount == 2)
+                        {
+                            SrLogger.LogWarning(
+                                $"Reliable resend started for {packet.Destination}: packet={packet.PacketId}, type={(PacketType)packet.PacketType}, reliability={packet.Reliability}, age={(now - packet.FirstSendTime).TotalMilliseconds:0}ms, pendingReliable={pendingPackets.Count}.",
+                                SrLogTarget.Both);
+                        }
 
                         if (packet.SendCount % 10 == 0)
                         {

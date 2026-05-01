@@ -23,6 +23,13 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
             return;
         }
 
+        var gadget = actor.TryCast<GadgetModel>();
+        if (gadget != null)
+        {
+            DestroyGadget(packet, gadget, actor, clientEp, client.PlayerId);
+            return;
+        }
+
         if (!actorManager.IsActorOwnedBy(packet.ActorId.Value, client.PlayerId))
         {
             var owner = actorManager.TryGetActorOwner(packet.ActorId.Value, out var currentOwner)
@@ -31,16 +38,6 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
             SrLogger.LogWarning(
                 $"Rejected actor destroy from {client.PlayerId} ({clientEp}); actor {packet.ActorId.Value} is owned by {owner}.",
                 SrLogTarget.Both);
-            return;
-        }
-
-        var gadget = actor.TryCast<GadgetModel>();
-        if (gadget != null)
-        {
-            RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
-            actorManager.Actors.Remove(packet.ActorId.Value);
-            actorManager.ClearActorOwner(packet.ActorId.Value);
-            Main.Server.SendToAllExcept(packet, clientEp);
             return;
         }
 
@@ -56,6 +53,30 @@ public sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket>
         if (obj)
             RunWithHandlingPacket(() => Destroyer.DestroyActor(obj, "SR2MP.ActorDestroyHandler"));
 
+        Main.Server.SendToAllExcept(packet, clientEp);
+    }
+
+    private static void DestroyGadget(
+        ActorDestroyPacket packet,
+        GadgetModel gadget,
+        IdentifiableModel actor,
+        IPEndPoint clientEp,
+        string playerId)
+    {
+        var owner = actorManager.TryGetActorOwner(packet.ActorId.Value, out var currentOwner)
+            ? currentOwner
+            : "unknown";
+
+        SrLogger.LogMessage(
+            $"Accepted gadget destroy from {playerId} ({clientEp}); actor {packet.ActorId.Value} owner={owner}.",
+            SrLogTarget.Both);
+
+        var gameObject = actor.GetGameObject();
+        RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
+        if (gameObject)
+            RunWithHandlingPacket(() => Object.Destroy(gameObject));
+        actorManager.Actors.Remove(packet.ActorId.Value);
+        actorManager.ClearActorOwner(packet.ActorId.Value);
         Main.Server.SendToAllExcept(packet, clientEp);
     }
 }

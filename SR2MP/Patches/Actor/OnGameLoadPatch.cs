@@ -2,6 +2,7 @@ using HarmonyLib;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using SR2MP.Components.Actor;
 using SR2MP.Shared.Managers;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Patches.Actor;
 
@@ -40,6 +41,8 @@ public static class OnGameLoadPatch
         }
 
         SceneContext.Instance.GameModel._actorIdProvider._nextActorId =
-            NetworkActorManager.GetNextActorIdInRange(0, 10000);
+            (uint)NetworkActorManager.GetNextActorIdInRange(
+                PlayerIdGenerator.HostActorIdRangeMin,
+                PlayerIdGenerator.HostActorIdRangeMax);
     }
 }

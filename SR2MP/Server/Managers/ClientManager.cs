@@ -13,6 +13,8 @@ public sealed class ClientManager
     public event Action<ClientInfo>? OnClientRemoved;
 
     public int ClientCount => clients.Count;
+    public bool AllInitialSyncComplete => clients.Values.All(client => client.InitialSyncComplete);
+    public int InitialSyncIncompleteCount => clients.Values.Count(client => !client.InitialSyncComplete);
 
     public bool TryGetClient(string clientInfo, out ClientInfo? client)
     {
@@ -117,15 +119,17 @@ public sealed class ClientManager
         return RemoveClient(clientInfo);
     }
 
-    public void UpdateHeartbeat(string clientInfo)
+    public TimeSpan? UpdateHeartbeat(string clientInfo)
     {
         if (clients.TryGetValue(clientInfo, out var client))
         {
-            client.UpdateHeartbeat();
+            return client.UpdateHeartbeat();
         }
+
+        return null;
     }
 
-    public void UpdateHeartbeat(IPEndPoint endPoint) => UpdateHeartbeat(GetClientInfo(endPoint));
+    public TimeSpan? UpdateHeartbeat(IPEndPoint endPoint) => UpdateHeartbeat(GetClientInfo(endPoint));
 
     public List<ClientInfo> GetAllClients()
     {

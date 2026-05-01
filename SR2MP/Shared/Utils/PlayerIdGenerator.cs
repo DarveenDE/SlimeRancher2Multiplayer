@@ -5,6 +5,11 @@ namespace SR2MP.Shared.Utils;
 
 public static class PlayerIdGenerator
 {
+    public const long HostActorIdRangeMin = 1L;
+    public const long HostActorIdRangeMax = ClientActorIdRangeSize;
+
+    private const long ClientActorIdRangeSize = 32000L;
+
     public static string GeneratePersistentPlayerId()
     {
         try
@@ -35,6 +40,15 @@ public static class PlayerIdGenerator
         foreach (char c in id[7..])
             number = (ushort)((number << 5) + number + c);
         return number;
+    }
+
+    public static void GetClientActorIdRange(string playerId, out long minActorId, out long maxActorId)
+        => GetClientActorIdRange(GetPlayerIDNumber(playerId), out minActorId, out maxActorId);
+
+    public static void GetClientActorIdRange(ushort playerIndex, out long minActorId, out long maxActorId)
+    {
+        minActorId = (playerIndex + 1L) * ClientActorIdRangeSize;
+        maxActorId = minActorId + ClientActorIdRangeSize;
     }
 
     public static bool IsValidPlayerId(string playerId)

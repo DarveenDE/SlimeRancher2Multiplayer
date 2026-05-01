@@ -11,7 +11,7 @@ public static class CurrencyPatch
     public static void AddCurrency(
         PlayerState __instance,
         ICurrency currencyDefinition,
-        int amount,
+        int adjust,
         bool showUiNotification)
     {
         if (handlingPacket) return;
@@ -25,8 +25,8 @@ public static class CurrencyPatch
         var packet = new CurrencyPacket
         {
             NewAmount = __instance._model.GetCurrencyAmount(currencyDefinition),
-            PreviousAmount = __instance._model.GetCurrencyAmount(currencyDefinition) - amount,
-            DeltaAmount = amount,
+            PreviousAmount = __instance._model.GetCurrencyAmount(currencyDefinition) - adjust,
+            DeltaAmount = adjust,
             CurrencyType = (byte)currency,
             ShowUINotification = showUiNotification,
         };
@@ -38,7 +38,7 @@ public static class CurrencyPatch
     public static void SpendCurrency(
         PlayerState __instance,
         ICurrency currency,
-        int amount)
+        int adjust)
     {
         if (handlingPacket) return;
 
@@ -48,8 +48,8 @@ public static class CurrencyPatch
         var packet = new CurrencyPacket
         {
             NewAmount = newAmount,
-            PreviousAmount = newAmount + amount,
-            DeltaAmount = -amount,
+            PreviousAmount = newAmount + adjust,
+            DeltaAmount = -adjust,
             CurrencyType = (byte)currencyId,
             ShowUINotification = true,
         };

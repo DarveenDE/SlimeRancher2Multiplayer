@@ -35,6 +35,8 @@ public sealed class InitialActorsPacket : IPacket
     }
 
     public uint StartingActorID { get; set; } = 10000;
+    public long ActorIdRangeMin { get; set; }
+    public long ActorIdRangeMax { get; set; }
     public List<Actor> Actors { get; set; }
 
     public PacketType Type => PacketType.InitialActors;
@@ -43,12 +45,16 @@ public sealed class InitialActorsPacket : IPacket
     public void Serialise(PacketWriter writer)
     {
         writer.WriteUInt(StartingActorID);
+        writer.WriteLong(ActorIdRangeMin);
+        writer.WriteLong(ActorIdRangeMax);
         writer.WriteList(Actors, PacketWriterDels.NetObject<Actor>.Func);
     }
 
     public void Deserialise(PacketReader reader)
     {
         StartingActorID = reader.ReadUInt();
+        ActorIdRangeMin = reader.ReadLong();
+        ActorIdRangeMax = reader.ReadLong();
         Actors = reader.ReadList(PacketReaderDels.NetObject<Actor>.Func);
     }
 }

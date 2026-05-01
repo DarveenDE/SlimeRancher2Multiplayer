@@ -1,5 +1,6 @@
 using HarmonyLib;
 using SR2MP.Packets.Actor;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Patches.Actor;
 
@@ -22,7 +23,10 @@ public static class OnActorDestroy
         }
         catch { }
 
-        if ((!Main.Server.IsRunning() && !Main.Client.IsConnected) || handlingPacket || !actorObj)
+        if ((!Main.Server.IsRunning() && !Main.Client.IsConnected)
+            || handlingPacket
+            || NetworkSessionState.InitialActorLoadInProgress
+            || !actorObj)
             return true;
 
         var actor = actorObj.GetComponent<IdentifiableActor>();

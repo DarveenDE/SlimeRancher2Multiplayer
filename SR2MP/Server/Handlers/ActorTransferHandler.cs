@@ -55,6 +55,6 @@ public sealed class ActorTransferHandler : BasePacketHandler<ActorTransferPacket
         component.LocallyOwned = false;
         actorManager.SetActorOwner(packet.ActorId.Value, client.PlayerId);
 
-        Main.Server.SendToAllExcept(packet, clientEp);
+        Main.Server.SendToAll(packet);
     }
 }

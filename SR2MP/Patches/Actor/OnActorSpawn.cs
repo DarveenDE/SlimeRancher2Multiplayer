@@ -6,6 +6,7 @@ using MelonLoader;
 using SR2MP.Components.Actor;
 using SR2MP.Packets.Actor;
 using SR2MP.Shared.Managers;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Patches.Actor;
 
@@ -30,6 +31,16 @@ public static class OnActorSpawn
             GardenResourceAttachSyncManager.DestroyLocalResource(
                 actor.GetComponent<ResourceCycle>(),
                 "SR2MP.OnActorSpawn.ClientGardenSpawnSuppressed");
+            yield break;
+        }
+
+        if (Main.Client.IsConnected
+            && NetworkSessionState.TryGetAssignedActorIdRange(out var minActorId, out var maxActorId)
+            && (id.Value < minActorId || id.Value >= maxActorId))
+        {
+            SrLogger.LogWarning(
+                $"Not sending actor spawn for actor {id.Value}; local id is outside assigned range [{minActorId}, {maxActorId}).",
+                SrLogTarget.Both);
             yield break;
         }
 

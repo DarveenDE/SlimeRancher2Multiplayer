@@ -1,6 +1,7 @@
 using HarmonyLib;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using SR2MP.Packets.Actor;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Patches.Actor;
 
@@ -9,7 +10,7 @@ public static class OnGadgetDestroyed
 {
     public static void Prefix(GadgetModel __instance)
     {
-        if (handlingPacket || __instance == null)
+        if (handlingPacket || NetworkSessionState.InitialActorLoadInProgress || __instance == null)
             return;
 
         if (!Main.Server.IsRunning() && !Main.Client.IsConnected)

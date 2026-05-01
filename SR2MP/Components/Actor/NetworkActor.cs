@@ -213,8 +213,6 @@ public sealed class NetworkActor : MonoBehaviour
             }
             else
             {
-                LocallyOwned = true;
-
                 var actorId = ActorId;
                 if (actorId.Value == 0)
                 {
@@ -222,7 +220,10 @@ public sealed class NetworkActor : MonoBehaviour
                 }
 
                 if (Main.Server.IsRunning())
+                {
+                    LocallyOwned = true;
                     actorManager.SetActorOwner(actorId.Value, LocalID);
+                }
 
                 var packet = new ActorTransferPacket
                 {

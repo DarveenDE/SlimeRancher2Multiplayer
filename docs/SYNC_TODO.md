@@ -16,6 +16,66 @@ Important clarification: **player inventories should not be globally equalized**
 
 Current order for the next implementation pass:
 
+### Freeze Investigation Update 2026-05-01
+
+Observed logs from the 14:46 two-player test show a clear correlation between periodic full world repair and the client stalls:
+
+- Server sent periodic full repair snapshots at roughly 15-second intervals with about 190-209 reliable packets per snapshot.
+- The first repair snapshot was produced while the client was still in initial sync, then 214 queued reliable packets were flushed immediately after initial sync completed.
+- Client log showed repeated repair corrections for refinery/garden/gordo state, 49 initial actor spawn failures from `SpawnResourceModel.NotifyParticipants`, and 1047 queued actor-update debug entries for actors that never existed locally.
+- Startup log also showed a real Harmony failure in `CurrencyPatch.AddCurrency` because the SR2 method parameter is named `adjust`, not `amount`.
+
+Mitigation implemented 2026-05-01:
+
+- [x] Fixed `CurrencyPatch.AddCurrency` Harmony parameter from `amount` to `adjust`.
+- [x] Periodic full repair is now opt-in via `periodic_full_world_repair` and defaults to off, so old saved `periodic_world_repair=true` values no longer keep the heavy repair loop alive.
+- [x] If periodic full repair is explicitly enabled, it now waits 120 seconds between snapshots instead of 15 seconds.
+- [x] Repair snapshots are skipped while any client is still in initial sync, preventing repair packets from being added to the initial-sync flush queue.
+- [x] Verbose debug log spam is gated behind `verbose_sync_diagnostics`, default off. Summary sync diagnostics remain available via `sync_diagnostics`.
+- [x] Repeated actor updates for an already pending missing actor now refresh the queued packet without extending the timeout or logging every packet.
+- [x] Release build verified after the mitigation.
+- [x] Follow-up 2026-05-01: rejected host-owned actor update spam was addressed by making client actor ownership wait for the server's accepted `ActorTransferPacket` broadcast before sending actor updates. Server-side actor-update rejection logging is now rate-limited and reports suppressed duplicate rejections.
+
+Gadget placement update 2026-05-01:
+
+- Logs from the 15:12-15:15 two-player test explain the failed refinery-link/connector placement in the client-to-host direction: the host rejected client `ActorSpawnPacket`s because the client generated actor ids `185890010` through `185890027`, just outside the assigned range `[185880000, 185890000)`.
+- Implemented a shared client actor-id range helper so initial connect assignment and server validation use the same calculation.
+- Increased the non-overlapping host/client actor-id ranges to 32,000 ids and moved client ranges away from the host range.
+- The client now remembers its assigned actor-id range and resets the game's local actor-id provider again after the initial actor batch finishes, preventing initial-load spawn work from drifting the provider out of range.
+- Client local actor/gadget spawn patches now log and suppress network sends if a future local spawn still falls outside the assigned range.
+- Fixed the remaining startup Harmony failure in `CurrencyPatch.SpendCurrency` by using the SR2 method parameter name `adjust`.
+- Release build verified after this fix and copied to the host/client `Mods/SR2MP.dll` paths at 15:20. Next retest should check live gadget placement from host and client again; if host-to-client placement is still missing, the next focus is gadget instantiation/visibility on the receiving client rather than actor-id authority.
+
+Join cleanup update 2026-05-01:
+
+- Follow-up test showed newly placed gadgets are now visible cross-client, but a previously client-local refinery connector from the failed actor-id test could remain visible on the joining client even though the host did not have it.
+- Logs showed the joining client queued `ActorDestroyPacket`s during initial sync cleanup, and the host rejected them for actor `10130` as host-owned. This confirmed local cleanup was leaking network destroy events while the host snapshot was being applied.
+- Implemented initial-actor cleanup under the packet echo guard and marked initial actor load before local model removal starts.
+- Gadget cleanup now explicitly destroys leftover local gadget `GameObject`s before spawning the host snapshot, so orphaned client-only gadgets from earlier failed sessions should disappear on join.
+- `OnActorDestroy` and `OnGadgetDestroyed` now also suppress network sends while initial actor load is active.
+- Release build verified after this cleanup fix. Host and client `Mods/SR2MP.dll` were both replaced with the 15:34 build after the client game was closed.
+
+Gadget destroy authority update 2026-05-01:
+
+- Follow-up test showed host-initiated refinery connector removal syncs to the client, but client-initiated removal left the connector on the host.
+- Logs confirmed the host rejected client `ActorDestroyPacket`s for connector actors such as `13434` because they were owned by `HOST`.
+- Policy decision: player-placeable gadgets are shared world objects. Any connected client may request gadget removal from the host; normal non-gadget actors still require actor ownership.
+- Implemented server-side gadget destroy acceptance before the generic actor ownership check, with explicit acceptance logging.
+- Fixed `NetworkActorManager.TakeOwnershipOfNearby()` to iterate over a snapshot of actor entries, avoiding the observed `Collection was modified` coroutine crash during/after initial actor sync.
+- Release build verified and copied to both host/client `Mods/SR2MP.dll` paths at 15:43.
+
+Current gadget lifecycle matrix:
+
+- Host places gadget: host creates local gadget, broadcasts `ActorSpawn`, client spawns it.
+- Client places gadget: client creates local gadget, host validates actor id/type/scene, host creates it, other peers receive host-accepted `ActorSpawn`.
+- Host removes gadget: host removes local gadget, broadcasts `ActorDestroy`, client removes model and GameObject.
+- Client removes gadget: client removes local gadget, host now accepts gadget `ActorDestroy` even when owner is `HOST`, removes it, and broadcasts to other peers.
+- Client joins with stale local-only gadget: initial actor cleanup removes local models/GameObjects under packet echo guard, then applies host snapshot.
+- Reconnect after gadget changes: host snapshot remains the source of truth; orphaned local gadgets should be cleared before snapshot spawn.
+- Still open: add a focused gadget repair snapshot if missed live packets can leave duplicate/missing gadgets without reconnect.
+
+Current status: ready for a targeted retest with periodic full repair left off. If the freeze remains, the next likely focus is the 50 failed initial actor spawns / missing actor ids, especially `SpawnResourceModel.NotifyParticipants` and the repeated actor updates for non-existent actor ids.
+
 1. Harden shared currency changes. **Status: done 2026-05-01.**
    - Decide and document currency as shared host-authoritative save state for the current architecture.
    - Stop accepting arbitrary client absolute `NewAmount` as truth.
@@ -31,6 +91,8 @@ Current order for the next implementation pass:
    - Pedia repair snapshot.
    - Player upgrade repair snapshot.
    - Include these categories in `WorldStateRepairManager` logging.
+   - Diagnostic note 2026-05-01: `WorldStateRepairManager` now logs each repair snapshot with reason, host-side duration, estimated packet count, reliable backlog before/after, per-category counts, and per-category timings.
+   - Runtime switch: periodic full repair is now opt-in via `periodic_full_world_repair`; manual and failure-triggered repair requests remain available.
 
 4. Add explicit rejection logging for the remaining invalid business mutations. **Status: broad first pass done 2026-05-01.**
    - Prioritize currency, land plot, refinery/ammo/feeder, world switches/doors, gordos, resource nodes, puzzle slots, and plort depositors.
@@ -53,6 +115,7 @@ Status 2026-05-01:
 - Decided current currency policy: currency remains shared host-authoritative save state. Client currency packets now include a delta and expected previous amount; the host rejects stale/malformed updates instead of accepting arbitrary absolute `NewAmount`.
 - Added repair snapshot coverage for shared currency, pedia entries, and player upgrade levels.
 - Added rejection logging with player/endpoint context for currency, land plot, garden plant, access door, world switch, gordo feed/burst, puzzle slot, plort depositor, refinery, land plot ammo, and feeder updates.
+- Added sync diagnostics for freeze investigation: repair snapshot burst summaries, delayed reliable ACK warnings, first-resend warnings, and heartbeat-gap warnings.
 - This is still an ingress and basic business-rule hardening step. Deeper per-action validation remains open below.
 
 ### Tasks

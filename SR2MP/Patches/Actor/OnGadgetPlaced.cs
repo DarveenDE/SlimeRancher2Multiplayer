@@ -6,6 +6,7 @@ using Il2CppMonomiPark.SlimeRancher.World;
 using MelonLoader;
 using SR2MP.Packets.Actor;
 using SR2MP.Shared.Managers;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Patches.Actor;
 
@@ -26,6 +27,16 @@ public static class OnGadgetPlaced
         var model = gadget.GetModel();
         if (model == null || model.actorId.Value == 0 || model.ident == null || model.sceneGroup == null)
             yield break;
+
+        if (Main.Client.IsConnected
+            && NetworkSessionState.TryGetAssignedActorIdRange(out var minActorId, out var maxActorId)
+            && (model.actorId.Value < minActorId || model.actorId.Value >= maxActorId))
+        {
+            SrLogger.LogWarning(
+                $"Not sending gadget spawn for actor {model.actorId.Value}; local id is outside assigned range [{minActorId}, {maxActorId}).",
+                SrLogTarget.Both);
+            yield break;
+        }
 
         actorManager.Actors[model.actorId.Value] = model;
         if (Main.Server.IsRunning())

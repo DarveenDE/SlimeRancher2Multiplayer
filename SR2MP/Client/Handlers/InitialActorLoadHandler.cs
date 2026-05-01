@@ -1,5 +1,6 @@
 using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
+using Il2CppMonomiPark.SlimeRancher.World;
 using MelonLoader;
 using SR2MP.Packets.Loading;
 using SR2MP.Shared.Managers;
@@ -19,33 +20,117 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
         actorManager.Actors.Clear();
         actorManager.ActorOwners.Clear();
 
+        NetworkSessionState.BeginInitialActorLoad();
+
+        try
+        {
+            ClearLocalActorsBeforeInitialSync();
+
+            SceneContext.Instance.GameModel._actorIdProvider._nextActorId =
+                packet.StartingActorID;
+            NetworkSessionState.SetAssignedActorIdRange(packet.ActorIdRangeMin, packet.ActorIdRangeMax);
+
+            MelonCoroutines.Start(SpawnActorsBatched(packet.Actors));
+        }
+        catch
+        {
+            NetworkSessionState.EndInitialActorLoad();
+            throw;
+        }
+    }
+
+    private static void ClearLocalActorsBeforeInitialSync()
+    {
         var toRemove = new CppCollections.Dictionary<ActorId, IdentifiableModel>(
             SceneContext.Instance.GameModel.identifiables
                 .Cast<CppCollections.IDictionary<ActorId, IdentifiableModel>>());
 
-        foreach (var actor in toRemove)
-        {
-            if (actor.value.ident.IsPlayer) continue;
+        var removedActors = 0;
+        var removedGadgets = 0;
+        var skippedPlayers = 0;
+        var cleanupErrors = 0;
 
-            var gadget = actor.value.TryCast<GadgetModel>();
-            if (gadget != null)
+        RunWithHandlingPacket(() =>
+        {
+            foreach (var actor in toRemove)
             {
-                SceneContext.Instance.GameModel.DestroyGadgetModel(gadget);
-                continue;
+                try
+                {
+                    if (actor.value == null)
+                        continue;
+
+                    if (actor.value.ident && actor.value.ident.IsPlayer)
+                    {
+                        skippedPlayers++;
+                        continue;
+                    }
+
+                    RemoveLocalActorModel(actor.value, ref removedActors, ref removedGadgets);
+                }
+                catch (Exception ex)
+                {
+                    cleanupErrors++;
+                    SrLogger.LogWarning(
+                        $"Initial actor cleanup failed for local actor {actor.key.Value}: {ex.Message}",
+                        SrLogTarget.Both);
+                }
             }
 
-            var gameObject = actor.value.GetGameObject();
+            removedGadgets += DestroyRemainingLocalGadgetObjects();
+        });
+
+        SrLogger.LogMessage(
+            $"Initial actor sync cleared local state: actors={removedActors}, gadgets={removedGadgets}, skippedPlayers={skippedPlayers}, errors={cleanupErrors}",
+            SrLogTarget.Both);
+    }
+
+    private static void RemoveLocalActorModel(IdentifiableModel actor, ref int removedActors, ref int removedGadgets)
+    {
+        var gameObject = actor.GetGameObject();
+        var gadget = actor.TryCast<GadgetModel>();
+
+        if (gadget != null)
+        {
+            SceneContext.Instance.GameModel.DestroyGadgetModel(gadget);
+            RemoveFromModelIndexes(actor);
             if (gameObject)
                 Object.Destroy(gameObject);
-
-            SceneContext.Instance.GameModel.DestroyIdentifiableModel(actor.value);
+            actorManager.Actors.Remove(actor.actorId.Value);
+            actorManager.ClearActorOwner(actor.actorId.Value);
+            removedGadgets++;
+            return;
         }
 
-        SceneContext.Instance.GameModel._actorIdProvider._nextActorId =
-            packet.StartingActorID;
+        if (gameObject)
+            Object.Destroy(gameObject);
 
-        NetworkSessionState.BeginInitialActorLoad();
-        MelonCoroutines.Start(SpawnActorsBatched(packet.Actors));
+        RemoveFromModelIndexes(actor);
+        SceneContext.Instance.GameModel.DestroyIdentifiableModel(actor);
+        actorManager.Actors.Remove(actor.actorId.Value);
+        actorManager.ClearActorOwner(actor.actorId.Value);
+        removedActors++;
+    }
+
+    private static void RemoveFromModelIndexes(IdentifiableModel actor)
+    {
+        SceneContext.Instance.GameModel.identifiables.Remove(actor.actorId);
+        if (actor.ident && SceneContext.Instance.GameModel.identifiablesByIdent.TryGetValue(actor.ident, out var actorsByIdent))
+            actorsByIdent.Remove(actor);
+    }
+
+    private static int DestroyRemainingLocalGadgetObjects()
+    {
+        var destroyed = 0;
+        foreach (var gadget in Object.FindObjectsOfType<Gadget>())
+        {
+            if (!gadget || !gadget.gameObject)
+                continue;
+
+            Object.Destroy(gadget.gameObject);
+            destroyed++;
+        }
+
+        return destroyed;
     }
 
     // Spawns actors in batches across frames to avoid a single-frame instantiation hitch.
@@ -103,6 +188,15 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
         }
         finally
         {
+            if (NetworkSessionState.TryGetAssignedActorIdRange(out var minActorId, out var maxActorId))
+            {
+                var nextActorId = NetworkActorManager.GetNextActorIdInRange(minActorId, maxActorId);
+                SceneContext.Instance.GameModel._actorIdProvider._nextActorId = (uint)nextActorId;
+                SrLogger.LogMessage(
+                    $"Client actor id provider ready: range=[{minActorId}, {maxActorId}), next={nextActorId}",
+                    SrLogTarget.Both);
+            }
+
             NetworkSessionState.EndInitialActorLoad();
         }
 

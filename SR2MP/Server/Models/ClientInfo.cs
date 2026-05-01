@@ -35,7 +35,13 @@ public sealed class ClientInfo
         InitialSyncComplete = false;
     }
 
-    public void UpdateHeartbeat() => LastHeartbeat = DateTime.UtcNow;
+    public TimeSpan UpdateHeartbeat()
+    {
+        var now = DateTime.UtcNow;
+        var gap = now - LastHeartbeat;
+        LastHeartbeat = now;
+        return gap;
+    }
 
     public bool IsTimedOut()
         => (DateTime.UtcNow - LastHeartbeat).TotalSeconds > HeartbeatSettings.TimeoutSeconds;

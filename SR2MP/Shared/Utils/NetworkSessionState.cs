@@ -5,6 +5,8 @@ namespace SR2MP.Shared.Utils;
 public static class NetworkSessionState
 {
     private static int initialActorLoadInProgress;
+    private static long assignedActorIdRangeMin;
+    private static long assignedActorIdRangeMax;
 
     public static bool InitialActorLoadInProgress
         => System.Threading.Volatile.Read(ref initialActorLoadInProgress) > 0;
@@ -18,6 +20,24 @@ public static class NetworkSessionState
             System.Threading.Volatile.Write(ref initialActorLoadInProgress, 0);
     }
 
+    public static void SetAssignedActorIdRange(long minActorId, long maxActorId)
+    {
+        System.Threading.Volatile.Write(ref assignedActorIdRangeMin, minActorId);
+        System.Threading.Volatile.Write(ref assignedActorIdRangeMax, maxActorId);
+    }
+
+    public static bool TryGetAssignedActorIdRange(out long minActorId, out long maxActorId)
+    {
+        minActorId = System.Threading.Volatile.Read(ref assignedActorIdRangeMin);
+        maxActorId = System.Threading.Volatile.Read(ref assignedActorIdRangeMax);
+        return minActorId > 0 && maxActorId > minActorId;
+    }
+
+    public static bool IsActorIdInAssignedClientRange(long actorId)
+        => TryGetAssignedActorIdRange(out var minActorId, out var maxActorId)
+           && actorId >= minActorId
+           && actorId < maxActorId;
+
     public static void ClearTransientSyncState()
     {
         PacketDeduplication.Clear();
@@ -27,6 +47,8 @@ public static class NetworkSessionState
         GardenResourceAttachSyncManager.Clear();
         actorManager.ActorOwners.Clear();
         System.Threading.Volatile.Write(ref initialActorLoadInProgress, 0);
+        System.Threading.Volatile.Write(ref assignedActorIdRangeMin, 0L);
+        System.Threading.Volatile.Write(ref assignedActorIdRangeMax, 0L);
         handlingPacket = false;
     }
 }

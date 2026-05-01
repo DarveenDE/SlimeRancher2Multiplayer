@@ -52,7 +52,12 @@ public static class Logger
         => LogInternal(message, LogLevel.Error, target, SR2ELogManager.SendError, _melonLogger.Error);
 
     public static void LogDebug(object? message, LogTarget target = LogTarget.Main)
-        => LogInternal(message, LogLevel.Debug, target, null, null);
+    {
+        if (!Main.VerboseSyncDiagnosticsEnabled)
+            return;
+
+        LogInternal(message, LogLevel.Debug, target, null, null);
+    }
 
     public static void LogPacketSize(object? message, LogTarget target = LogTarget.Main)
     {
@@ -88,7 +93,12 @@ public static class Logger
         => LogSplit(publicMsg, sensitiveMsg, LogLevel.Error, SR2ELogManager.SendError, _melonLogger.Error);
 
     public static void LogDebug(object? publicMsg, object? sensitiveMsg)
-        => LogSplit(publicMsg, sensitiveMsg, LogLevel.Debug, null, null);
+    {
+        if (!Main.VerboseSyncDiagnosticsEnabled)
+            return;
+
+        LogSplit(publicMsg, sensitiveMsg, LogLevel.Debug, null, null);
+    }
 
     public static void LogPacketSize(object? publicMsg, object? sensitiveMsg)
     {

@@ -30,6 +30,10 @@ public sealed class ActorTransferHandler : BaseClientPacketHandler<ActorTransfer
             gameObject.GetComponent<Vacuumable>().Release();
         }
 
-        component.LocallyOwned = false;
+        var ownsActor = packet.OwnerPlayer == Client.OwnPlayerId;
+        component.LocallyOwned = ownsActor;
+
+        if (!string.IsNullOrWhiteSpace(packet.OwnerPlayer))
+            actorManager.SetActorOwner(packet.ActorId.Value, packet.OwnerPlayer);
     }
 }

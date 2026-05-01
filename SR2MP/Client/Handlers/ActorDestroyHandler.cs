@@ -22,7 +22,10 @@ public sealed class ActorDestroyHandler : BaseClientPacketHandler<ActorDestroyPa
         var gadget = actor.TryCast<GadgetModel>();
         if (gadget != null)
         {
+            var gameObject = actor.GetGameObject();
             RunWithHandlingPacket(() => SceneContext.Instance.GameModel.DestroyGadgetModel(gadget));
+            if (gameObject)
+                RunWithHandlingPacket(() => Object.Destroy(gameObject));
             actorManager.Actors.Remove(packet.ActorId.Value);
             actorManager.ClearActorOwner(packet.ActorId.Value);
             return;

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using Il2CppMonomiPark.SlimeRancher.Economy;
 using Il2CppMonomiPark.SlimeRancher.Pedia;
@@ -15,19 +16,26 @@ namespace SR2MP.Shared.Managers;
 
 public static class WorldStateRepairManager
 {
-    private const float RepairIntervalSeconds = 15f;
+    private const float RepairIntervalSeconds = 120f;
     private const float ManualRepairCooldownSeconds = 5f;
     private static bool repairLoopRunning;
     private static float nextManualRepairAt;
+    private static long repairSnapshotSequence;
 
     public static void Start()
     {
+        if (!Main.PeriodicWorldRepairEnabled)
+        {
+            SrLogger.LogMessage("Periodic full world state repair snapshots disabled by configuration.", SrLogTarget.Main);
+            return;
+        }
+
         if (repairLoopRunning)
             return;
 
         repairLoopRunning = true;
         MelonCoroutines.Start(RepairLoop());
-        SrLogger.LogDebug("World state repair snapshots enabled.", SrLogTarget.Main);
+        SrLogger.LogMessage($"Periodic full world state repair snapshots enabled every {RepairIntervalSeconds:0.#}s.", SrLogTarget.Main);
     }
 
     public static void Stop()
@@ -53,7 +61,7 @@ public static class WorldStateRepairManager
 
         nextManualRepairAt = Time.realtimeSinceStartup + ManualRepairCooldownSeconds;
         SrLogger.LogWarning($"Sending repair snapshot due to {reason}.", SrLogTarget.Both);
-        SendRepairSnapshot();
+        SendRepairSnapshot(reason);
         return true;
     }
 
@@ -71,7 +79,7 @@ public static class WorldStateRepairManager
             if (!CanSendRepairSnapshot())
                 continue;
 
-            SendRepairSnapshot();
+            SendRepairSnapshot("periodic");
         }
     }
 
@@ -80,6 +88,18 @@ public static class WorldStateRepairManager
         if (!Main.Server.IsRunning() || Main.Server.GetClientCount() <= 0)
         {
             PerformanceDiagnostics.RecordWorldRepairSkippedNoClients();
+            return false;
+        }
+
+        if (!Main.Server.AllClientsInitialSyncComplete())
+        {
+            if (Main.SyncDiagnosticsEnabled)
+            {
+                SrLogger.LogWarning(
+                    $"Repair snapshot skipped: {Main.Server.GetInitialSyncIncompleteClientCount()} client(s) are still in initial sync.",
+                    SrLogTarget.Main);
+            }
+
             return false;
         }
 
@@ -93,31 +113,60 @@ public static class WorldStateRepairManager
         return SceneContext.Instance && SceneContext.Instance.GameModel;
     }
 
-    private static void SendRepairSnapshot()
+    private static void SendRepairSnapshot(string reason)
     {
         PerformanceDiagnostics.RecordWorldRepairSnapshot();
+        var snapshotId = System.Threading.Interlocked.Increment(ref repairSnapshotSequence);
+        var snapshotStart = Stopwatch.GetTimestamp();
+        var pendingBefore = Main.Server.GetPendingReliablePackets();
         var stats = new RepairSnapshotStats();
+        void TimedSend(string area, Action send) => TrySend(area, send, stats);
 
-        TrySend("currency", () => SendCurrencySnapshot(stats));
-        TrySend("refinery", () => SendRefinerySnapshot(stats));
+        TimedSend("currency", () => SendCurrencySnapshot(stats));
+        TimedSend("refinery", () => SendRefinerySnapshot(stats));
         if (!TryGetGameModel(out var gameModel))
+        {
+            LogRepairSnapshot(reason, snapshotId, snapshotStart, pendingBefore, stats);
             return;
+        }
 
-        TrySend("pedia", () => SendPediaSnapshot(stats));
-        TrySend("player upgrades", () => SendPlayerUpgradeSnapshot(stats));
-        TrySend("land plots", () => SendLandPlotSnapshots(gameModel, stats));
-        TrySend("switches", () => SendSwitchSnapshots(gameModel, stats));
-        TrySend("access doors", () => SendAccessDoorSnapshots(gameModel, stats));
-        TrySend("map unlocks", () => SendMapUnlockSnapshots(stats));
-        TrySend("comm station", () => SendCommStationSnapshots(stats));
-        TrySend("resource nodes", () => SendResourceNodeSnapshots(stats));
-        TrySend("gordos", () => SendGordoSnapshots(gameModel, stats));
-        TrySend("puzzle slots", () => SendPuzzleSlotSnapshots(gameModel, stats));
-        TrySend("plort depositors", () => SendPlortDepositorSnapshots(gameModel, stats));
+        TimedSend("pedia", () => SendPediaSnapshot(stats));
+        TimedSend("player upgrades", () => SendPlayerUpgradeSnapshot(stats));
+        TimedSend("land plots", () => SendLandPlotSnapshots(gameModel, stats));
+        TimedSend("switches", () => SendSwitchSnapshots(gameModel, stats));
+        TimedSend("access doors", () => SendAccessDoorSnapshots(gameModel, stats));
+        TimedSend("map unlocks", () => SendMapUnlockSnapshots(stats));
+        TimedSend("comm station", () => SendCommStationSnapshots(stats));
+        TimedSend("resource nodes", () => SendResourceNodeSnapshots(stats));
+        TimedSend("gordos", () => SendGordoSnapshots(gameModel, stats));
+        TimedSend("puzzle slots", () => SendPuzzleSlotSnapshots(gameModel, stats));
+        TimedSend("plort depositors", () => SendPlortDepositorSnapshots(gameModel, stats));
 
         SrLogger.LogDebug(
             $"Repair snapshot sent: currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, playerUpgrades={stats.PlayerUpgrades}, refinery={stats.RefineryItems}, plotTypes={stats.LandPlotTypes}, plotUpgrades={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, gardens={stats.GardenStates}, gardenGrowth={stats.GardenGrowthStates}, gardenProduce={stats.GardenProduceStates}, gardenAttach={stats.GardenResourceAttachStates}, feeders={stats.FeederStates}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, comm={stats.CommStationEntries}, resourceNodes={stats.ResourceNodes}, gordos={stats.Gordos}, slots={stats.PuzzleSlots}, depositors={stats.PlortDepositors}.",
             SrLogTarget.Main);
+        LogRepairSnapshot(reason, snapshotId, snapshotStart, pendingBefore, stats);
+    }
+
+    private static void LogRepairSnapshot(
+        string reason,
+        long snapshotId,
+        long snapshotStart,
+        int pendingBefore,
+        RepairSnapshotStats stats)
+    {
+        if (!Main.SyncDiagnosticsEnabled)
+            return;
+
+        var elapsedMs = TicksToMilliseconds(Stopwatch.GetTimestamp() - snapshotStart);
+        var pendingAfter = Main.Server.GetPendingReliablePackets();
+        var message =
+            $"World repair snapshot #{snapshotId} reason={reason}, duration={elapsedMs:0.0}ms, packets~={stats.EstimatedPackets}, pendingReliable={pendingBefore}->{pendingAfter}, counts=[currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, upgrades={stats.PlayerUpgrades}, refinery={stats.RefineryItems}, plotType={stats.LandPlotTypes}, plotUpgrade={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, garden={stats.GardenStates}, growth={stats.GardenGrowthStates}, produce={stats.GardenProduceStates}, attach={stats.GardenResourceAttachStates}, feeder={stats.FeederStates}, switch={stats.Switches}, door={stats.AccessDoors}, map={stats.MapUnlocks}, comm={stats.CommStationEntries}, nodes={stats.ResourceNodes}, gordo={stats.Gordos}, burst={stats.GordoBursts}, slot={stats.PuzzleSlots}, depositor={stats.PlortDepositors}], categoryMs=[{stats.CategoryTimings}].";
+
+        if (elapsedMs >= 50d || stats.EstimatedPackets >= 100 || pendingAfter - pendingBefore >= 100)
+            SrLogger.LogWarning(message, SrLogTarget.Both);
+        else
+            SrLogger.LogMessage(message, SrLogTarget.Both);
     }
 
     private static void SendCurrencySnapshot(RepairSnapshotStats stats)
@@ -389,6 +438,7 @@ public static class WorldStateRepairManager
                     ID = gordoEntry.Key,
                     IsRepairSnapshot = true,
                 });
+                stats.GordoBursts++;
             }
         }
     }
@@ -440,8 +490,9 @@ public static class WorldStateRepairManager
         return true;
     }
 
-    private static void TrySend(string area, Action send)
+    private static void TrySend(string area, Action send, RepairSnapshotStats stats)
     {
+        var start = Stopwatch.GetTimestamp();
         try
         {
             send();
@@ -450,10 +501,19 @@ public static class WorldStateRepairManager
         {
             SrLogger.LogWarning($"Could not send {area} repair snapshot: {ex.Message}", SrLogTarget.Main);
         }
+        finally
+        {
+            stats.AddCategoryTiming(area, TicksToMilliseconds(Stopwatch.GetTimestamp() - start));
+        }
     }
+
+    private static double TicksToMilliseconds(long ticks)
+        => ticks <= 0 ? 0d : ticks * 1000d / Stopwatch.Frequency;
 
     private sealed class RepairSnapshotStats
     {
+        private readonly List<string> categoryTimings = new();
+
         public int CurrencyValues { get; set; }
         public int PediaEntries { get; set; }
         public int PlayerUpgrades { get; set; }
@@ -472,7 +532,35 @@ public static class WorldStateRepairManager
         public int CommStationEntries { get; set; }
         public int ResourceNodes { get; set; }
         public int Gordos { get; set; }
+        public int GordoBursts { get; set; }
         public int PuzzleSlots { get; set; }
         public int PlortDepositors { get; set; }
+
+        public int EstimatedPackets =>
+            CurrencyValues
+            + 1 // refinery snapshot
+            + 1 // pedia snapshot
+            + 1 // player upgrade snapshot
+            + LandPlotTypes
+            + LandPlotUpgrades
+            + AmmoSets
+            + GardenStates
+            + GardenGrowthStates
+            + GardenResourceAttachStates
+            + FeederStates
+            + Switches
+            + AccessDoors
+            + (MapUnlocks > 0 ? 1 : 0)
+            + (CommStationEntries > 0 ? 1 : 0)
+            + (ResourceNodes > 0 ? 1 : 0)
+            + Gordos
+            + GordoBursts
+            + PuzzleSlots
+            + PlortDepositors;
+
+        public string CategoryTimings => string.Join(", ", categoryTimings);
+
+        public void AddCategoryTiming(string area, double elapsedMs)
+            => categoryTimings.Add($"{area}={elapsedMs:0.0}");
     }
 }

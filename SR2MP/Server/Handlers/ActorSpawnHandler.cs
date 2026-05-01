@@ -49,9 +49,7 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
 
     private static bool IsActorIdInClientRange(long actorId, string playerId, out long minActorId, out long maxActorId)
     {
-        var playerIndex = PlayerIdGenerator.GetPlayerIDNumber(playerId);
-        minActorId = playerIndex * 10000L;
-        maxActorId = minActorId + 10000L;
+        PlayerIdGenerator.GetClientActorIdRange(playerId, out minActorId, out maxActorId);
         return actorId >= minActorId && actorId < maxActorId;
     }
 }

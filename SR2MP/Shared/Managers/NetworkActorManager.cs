@@ -342,23 +342,27 @@ public sealed class NetworkActorManager
         var bounds = new Bounds(player.transform.position, new Vector3(325, 1000, 325));
 
         int i = 0;
-        foreach (var actor in Actors)
+        foreach (var actor in Actors.ToArray())
         {
-            if (actor.Value == null)
+            if (!Actors.TryGetValue(actor.Key, out var actorModel) || actorModel == null)
                 continue;
-            
-            if (!bounds.Contains(actor.Value.lastPosition))
-                continue;
-
-            if (!actor.Value.TryGetNetworkComponent(out var netActor) || netActor == null)
+             
+            if (!bounds.Contains(actorModel.lastPosition))
                 continue;
 
-            netActor.LocallyOwned = true;
+            if (!actorModel.TryGetNetworkComponent(out var netActor) || netActor == null)
+                continue;
 
             var actorId = netActor.ActorId;
             if (actorId.Value == 0)
             {
                 continue;
+            }
+
+            if (Main.Server.IsRunning())
+            {
+                netActor.LocallyOwned = true;
+                actorManager.SetActorOwner(actorId.Value, LocalID);
             }
 
             var packet = new ActorTransferPacket
