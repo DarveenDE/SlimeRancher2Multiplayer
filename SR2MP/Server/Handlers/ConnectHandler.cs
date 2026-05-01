@@ -248,6 +248,8 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
 
     private static void SendActorsPacket(IPEndPoint client, ushort playerIndex, List<ushort> pendingInitialPackets)
     {
+        actorManager.RefreshKnownActorsFromGameModel();
+
         var actorsList = new List<InitialActorsPacket.Actor>();
         var skipped = 0;
         PlayerIdGenerator.GetClientActorIdRange(playerIndex, out var minActorId, out var maxActorId);

@@ -54,13 +54,14 @@ public sealed class NetworkActorManager
             if (!gameModel)
                 continue;
 
-            TrackKnownActorsFromGameModel(gameModel!);
-
             var scene = SystemContext.Instance.SceneLoader.CurrentSceneGroup;
+            TrackKnownActorsFromGameModel(gameModel!);
 
             foreach (var actor in gameModel!.identifiables)
             {
                 if (!IsNetworkedActorModel(actor.value, includeGadgets: false))
+                    continue;
+                if (actor.value.sceneGroup == scene)
                     continue;
 
                 var obj = actor.value.GetGameObject();
@@ -84,8 +85,13 @@ public sealed class NetworkActorManager
 
                 if (actor2.value.sceneGroup != scene)
                     continue;
-                if (model.GetGameObject())
+
+                var existingObject = model.GetGameObject();
+                if (existingObject)
+                {
+                    EnsureNetworkActor(model, existingObject);
                     continue;
+                }
 
                 GameObject obj = null!;
                 RunWithHandlingPacket(() => obj = InstantiationHelpers.InstantiateActorFromModel(model));
@@ -93,20 +99,36 @@ public sealed class NetworkActorManager
                 if (!obj)
                     continue;
 
-                var networkComponent = obj.AddComponent<NetworkActor>();
-
-                networkComponent.previousPosition = model.lastPosition;
-                networkComponent.nextPosition = model.lastPosition;
-                networkComponent.previousRotation = model.lastRotation;
-                networkComponent.nextRotation = model.lastRotation;
-
-                actorManager.Actors[model.actorId.Value] = model;
-                if (Main.Server.IsRunning())
-                    actorManager.SetActorOwner(model.actorId.Value, LocalID);
+                EnsureNetworkActor(model, obj);
             }
 
             yield return TakeOwnershipOfNearby();
         }
+    }
+
+    public void RefreshKnownActorsFromGameModel()
+    {
+        var gameModel = SceneContext.Instance?.GameModel;
+        if (!gameModel)
+            return;
+
+        TrackKnownActorsFromGameModel(gameModel!);
+    }
+
+    private static void EnsureNetworkActor(ActorModel model, GameObject obj)
+    {
+        var networkComponent = obj.GetComponent<NetworkActor>();
+        if (!networkComponent)
+            networkComponent = obj.AddComponent<NetworkActor>();
+
+        networkComponent.previousPosition = model.lastPosition;
+        networkComponent.nextPosition = model.lastPosition;
+        networkComponent.previousRotation = model.lastRotation;
+        networkComponent.nextRotation = model.lastRotation;
+
+        actorManager.Actors[model.actorId.Value] = model;
+        if (Main.Server.IsRunning())
+            actorManager.SetActorOwner(model.actorId.Value, LocalID);
     }
 
     private static void TrackKnownActorsFromGameModel(GameModel gameModel)

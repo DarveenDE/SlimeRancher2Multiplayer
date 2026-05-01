@@ -28,6 +28,8 @@ public static class OnGameLoadPatch
 
     private static void HandleServerStarted()
     {
+        actorManager.RefreshKnownActorsFromGameModel();
+
         foreach (var actor in SceneContext.Instance.GameModel.identifiables)
         {
             if (actor.value.TryCast<ActorModel>() == null) continue;

@@ -217,6 +217,12 @@ public static class WorldEventStateSyncManager
                 {
                     gameObj!.GetComponent<GordoEat>()?.ImmediateReachedTarget();
                 }
+                catch (Exception ex)
+                {
+                    SrLogger.LogWarning(
+                        $"Failed to play gordo burst rewards for '{packet.ID}' from {source}: {ex.Message}",
+                        SrLogTarget.Both);
+                }
                 finally { handlingPacket = false; }
             }
 
