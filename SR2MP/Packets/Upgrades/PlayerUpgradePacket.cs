@@ -5,11 +5,20 @@ namespace SR2MP.Packets.Upgrades;
 public struct PlayerUpgradePacket : IPacket
 {
     public byte UpgradeID { get; set; }
+    public sbyte TargetLevel { get; set; }
 
     public readonly PacketType Type => PacketType.PlayerUpgrade;
     public readonly PacketReliability Reliability => PacketReliability.Reliable;
 
-    public readonly void Serialise(PacketWriter writer) => writer.WriteByte(UpgradeID);
+    public readonly void Serialise(PacketWriter writer)
+    {
+        writer.WriteByte(UpgradeID);
+        writer.WriteSByte(TargetLevel);
+    }
 
-    public void Deserialise(PacketReader reader) => UpgradeID = reader.ReadByte();
+    public void Deserialise(PacketReader reader)
+    {
+        UpgradeID = reader.ReadByte();
+        TargetLevel = reader.RemainingBytes > 0 ? reader.ReadSByte() : (sbyte)-1;
+    }
 }

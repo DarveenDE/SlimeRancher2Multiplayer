@@ -25,12 +25,23 @@ public sealed class PlayerUpgradeHandler : BasePacketHandler<PlayerUpgradePacket
         }
 
         var currentLevel = model.GetUpgradeLevel(upgrade);
-        var nextLevel = currentLevel + 1;
-        if (!upgrade.UpgradeLevelExist(nextLevel))
+        var requestedLevel = packet.TargetLevel >= 0 ? packet.TargetLevel : (sbyte)(currentLevel + 1);
+
+        if (requestedLevel <= currentLevel)
+        {
+            SrLogger.LogDebug(
+                $"Ignoring stale player upgrade '{upgrade.name}' ({packet.UpgradeID}) from {DescribeClient(senderEndPoint)}; host level is already {currentLevel}, requested {requestedLevel}.",
+                SrLogTarget.Main);
+            SendHostLevel(packet.UpgradeID, (sbyte)currentLevel, senderEndPoint);
+            return;
+        }
+
+        if (requestedLevel != currentLevel + 1 || !upgrade.UpgradeLevelExist(requestedLevel))
         {
             SrLogger.LogWarning(
-                $"Ignoring player upgrade '{upgrade.name}' ({packet.UpgradeID}) from {DescribeClient(senderEndPoint)}; current level {currentLevel} cannot advance to {nextLevel}.",
+                $"Ignoring player upgrade '{upgrade.name}' ({packet.UpgradeID}) from {DescribeClient(senderEndPoint)}; host level {currentLevel} cannot advance to requested level {requestedLevel}.",
                 SrLogTarget.Both);
+            SendHostLevel(packet.UpgradeID, (sbyte)currentLevel, senderEndPoint);
             return;
         }
 
@@ -41,10 +52,21 @@ public sealed class PlayerUpgradeHandler : BasePacketHandler<PlayerUpgradePacket
             SrLogger.LogWarning(
                 $"Player upgrade '{upgrade.name}' ({packet.UpgradeID}) from {DescribeClient(senderEndPoint)} was rejected by the host upgrade model.",
                 SrLogTarget.Both);
+            SendHostLevel(packet.UpgradeID, (sbyte)currentLevel, senderEndPoint);
             return;
         }
 
+        packet.TargetLevel = (sbyte)model.GetUpgradeLevel(upgrade);
         Main.Server.SendToAllExcept(packet, senderEndPoint);
+    }
+
+    private static void SendHostLevel(byte upgradeId, sbyte level, IPEndPoint senderEndPoint)
+    {
+        Main.Server.SendToClient(new PlayerUpgradePacket
+        {
+            UpgradeID = upgradeId,
+            TargetLevel = level,
+        }, senderEndPoint);
     }
 
     private string DescribeClient(IPEndPoint senderEndPoint)

@@ -24,18 +24,36 @@ public sealed class PlayerUpgradeHandler : BaseClientPacketHandler<PlayerUpgrade
         }
 
         var currentLevel = model.GetUpgradeLevel(upgrade);
-        var nextLevel = currentLevel + 1;
-        if (!upgrade.UpgradeLevelExist(nextLevel))
+        if (packet.TargetLevel < 0)
+        {
+            var nextLevel = currentLevel + 1;
+            if (!upgrade.UpgradeLevelExist(nextLevel))
+            {
+                SrLogger.LogWarning(
+                    $"Ignoring legacy player upgrade '{upgrade.name}' ({packet.UpgradeID}); current level {currentLevel} cannot advance to {nextLevel}.",
+                    SrLogTarget.Both);
+                return;
+            }
+
+            var upgraded = false;
+            RunWithHandlingPacket(() => upgraded = model.IncrementUpgradeLevel(upgrade));
+            if (!upgraded)
+                SrLogger.LogWarning($"Player upgrade '{upgrade.name}' ({packet.UpgradeID}) was rejected by the local upgrade model.", SrLogTarget.Both);
+
+            return;
+        }
+
+        if (packet.TargetLevel == currentLevel)
+            return;
+
+        if (packet.TargetLevel > 0 && !upgrade.UpgradeLevelExist(packet.TargetLevel))
         {
             SrLogger.LogWarning(
-                $"Ignoring player upgrade '{upgrade.name}' ({packet.UpgradeID}); current level {currentLevel} cannot advance to {nextLevel}.",
+                $"Ignoring player upgrade '{upgrade.name}' ({packet.UpgradeID}); target level {packet.TargetLevel} is invalid.",
                 SrLogTarget.Both);
             return;
         }
 
-        var upgraded = false;
-        RunWithHandlingPacket(() => upgraded = model.IncrementUpgradeLevel(upgrade));
-        if (!upgraded)
-            SrLogger.LogWarning($"Player upgrade '{upgrade.name}' ({packet.UpgradeID}) was rejected by the local upgrade model.", SrLogTarget.Both);
+        RunWithHandlingPacket(() => model.SetUpgradeLevel(upgrade, packet.TargetLevel));
     }
 }

@@ -80,7 +80,8 @@ public sealed partial class MultiplayerUI
 
         Main.SetConfigValue("recent_ip", ipInput);
         Main.SetConfigValue("recent_port", portInput);
-        RememberRecentServer(address);
+        RecentServerService.Remember(address, MaxRecentServers);
+        LoadRecentServers();
 
         SetConnectionStatus(ConnectionPhase.Synchronizing, $"Waiting for world sync from {address.Display}...");
     }
@@ -96,51 +97,7 @@ public sealed partial class MultiplayerUI
     private void LoadRecentServers()
     {
         recentServers.Clear();
-
-        foreach (var entry in Main.SavedRecentServers.Split('|', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (!ServerAddressParser.TryParse(entry, string.Empty, out var address, out _))
-                continue;
-
-            recentServers.Add(address);
-        }
-
-        TrimRecentServers();
-    }
-
-    private void RememberRecentServer(ServerAddress address)
-    {
-        AddRecentServer(address);
-        SaveRecentServers();
-    }
-
-    private void AddRecentServer(ServerAddress address)
-    {
-        for (int i = recentServers.Count - 1; i >= 0; i--)
-        {
-            var existing = recentServers[i];
-            if (existing.Port == address.Port &&
-                string.Equals(existing.Host, address.Host, StringComparison.OrdinalIgnoreCase))
-            {
-                recentServers.RemoveAt(i);
-            }
-        }
-
-        recentServers.Insert(0, address);
-        TrimRecentServers();
-    }
-
-    private void TrimRecentServers()
-    {
-        while (recentServers.Count > MaxRecentServers)
-        {
-            recentServers.RemoveAt(recentServers.Count - 1);
-        }
-    }
-
-    private void SaveRecentServers()
-    {
-        Main.SetConfigValue("recent_servers", string.Join("|", recentServers.Select(server => server.Display)));
+        recentServers.AddRange(RecentServerService.Load(MaxRecentServers));
     }
 
     public static void Kick(string player)

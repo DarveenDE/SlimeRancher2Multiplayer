@@ -490,11 +490,7 @@ public sealed class NativeMultiplayerMenu : SR2EMenu
     [HideFromIl2Cpp]
     private void DrawRecentServers()
     {
-        var recentServers = Main.SavedRecentServers
-            .Split('|', StringSplitOptions.RemoveEmptyEntries)
-            .Select(entry => ServerAddressParser.TryParse(entry, string.Empty, out var address, out _) ? address : default(ServerAddress?))
-            .Where(address => address.HasValue)
-            .Select(address => address!.Value)
+        var recentServers = RecentServerService.Load(NativeRecentServers)
             .Take(3)
             .ToList();
 
@@ -970,7 +966,7 @@ public sealed class NativeMultiplayerMenu : SR2EMenu
         feedback = $"Waiting for world sync from {pendingJoinAddress.Display}...";
         Main.SetConfigValue("recent_ip", pendingJoinAddress.Host);
         Main.SetConfigValue("recent_port", pendingJoinAddress.Port.ToString());
-        RememberRecentServer(pendingJoinAddress);
+        RecentServerService.Remember(pendingJoinAddress, NativeRecentServers);
         RefreshContent();
     }
 
@@ -1162,25 +1158,6 @@ public sealed class NativeMultiplayerMenu : SR2EMenu
             return "Disconnect before joining or hosting another world.";
 
         return "Please wait until the current multiplayer action finishes.";
-    }
-
-    [HideFromIl2Cpp]
-    private void RememberRecentServer(ServerAddress address)
-    {
-        var recentServers = Main.SavedRecentServers
-            .Split('|', StringSplitOptions.RemoveEmptyEntries)
-            .Select(entry => ServerAddressParser.TryParse(entry, string.Empty, out var recent, out _) ? recent : default(ServerAddress?))
-            .Where(recent => recent.HasValue)
-            .Select(recent => recent!.Value)
-            .Where(recent => recent.Port != address.Port ||
-                !string.Equals(recent.Host, address.Host, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        recentServers.Insert(0, address);
-        if (recentServers.Count > NativeRecentServers)
-            recentServers.RemoveRange(NativeRecentServers, recentServers.Count - NativeRecentServers);
-
-        Main.SetConfigValue("recent_servers", string.Join("|", recentServers.Select(recent => recent.Display)));
     }
 
     [HideFromIl2Cpp]

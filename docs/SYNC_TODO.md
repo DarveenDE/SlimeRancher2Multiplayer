@@ -24,6 +24,8 @@ Status 2026-05-01:
 - Hardened client-origin actor spawn so the host only rebroadcasts successfully applied spawns from the sender's assigned actor-id range.
 - Added actor ownership tracking in `NetworkActorManager.ActorOwners` and basic owner validation for actor update, destroy, transfer, and unload requests.
 - Expanded `Shared/Utils/PacketAuthority.cs` from a client-allowed set into a packet metadata matrix with direction, reliability profile, host action, initial sync coverage, and repair snapshot coverage.
+- Decided long-term pedia policy: pedia unlocks remain shared world progression for this co-op model. Clients may request a pedia unlock, but the host validates the entry and only rebroadcasts host-accepted new unlocks.
+- Decided current player-upgrade policy: upgrades remain shared save/player progression in the current architecture. `PlayerUpgradePacket` now carries the host-accepted target level so receivers set absolute host state instead of blindly incrementing.
 - This is still an ingress and basic business-rule hardening step. Deeper per-action validation remains open below.
 
 ### Tasks
@@ -46,10 +48,13 @@ Status 2026-05-01:
   - Current policy: treated as shared progression because initial sync already applies host pedia state to clients.
   - Implemented: server only rebroadcasts if the host actually unlocked a new pedia entry.
 
-- [ ] Decide long-term pedia policy.
+- [x] Decide long-term pedia policy.
   - Decide whether pedia unlocks are shared world progression or per-player progression.
   - If shared: host should preferably derive the unlock from host-side state where possible.
   - If per-player: stop rebroadcasting pedia unlocks globally.
+  - Decision 2026-05-01: shared world progression.
+  - Current enforcement: clients send unlock requests; the host validates known pedia ids, rejects duplicates/unknown ids, applies the unlock to host pedia state, and only then rebroadcasts.
+  - Remaining follow-up: add a pedia repair snapshot under Priority 2 so missed reliable unlock packets can be corrected without reconnecting.
 
 - [x] Harden client-triggered player upgrades against unknown, maxed, and host-rejected requests.
   - Current code path: `Patches/Player/OnPlayerUpgraded.cs`, `Server/Handlers/PlayerUpgradeHandler.cs`
@@ -57,9 +62,12 @@ Status 2026-05-01:
   - Implemented: server validates upgrade id, current level, next level existence, and `IncrementUpgradeLevel(...)` result before rebroadcast.
 
 - [ ] Finish player-upgrade authority policy.
-  - Decide whether upgrades are shared or per-player long term.
-  - Validate requirements/costs before accepting, or move upgrade purchase authority entirely to the host.
-  - Consider changing future packets from "increment this upgrade" to "host says this upgrade is now level N".
+  - [x] Decide whether upgrades are shared or per-player long term.
+  - Decision 2026-05-01: shared save/player progression for the current architecture, matching initial sync behavior.
+  - [x] Change live packets from "increment this upgrade" to "host says this upgrade is now level N".
+  - Implemented: `PlayerUpgradePacket.TargetLevel`; clients send their requested target after a successful local purchase, the host accepts only the next valid level, and receivers set the absolute host level.
+  - [ ] Validate requirements/costs before accepting, or move upgrade purchase authority entirely to the host.
+  - Remaining dependency: this should be decided together with currency/inventory-backed transaction authority.
 
 - [ ] Harden currency changes.
   - Current code path: `Patches/Economy/CurrencyPatch.cs`, `Server/Handlers/CurrencyHandler.cs`
@@ -109,13 +117,15 @@ Current repair coverage is already broad in `Shared/Managers/WorldStateRepairMan
   - Include both regular and rainbow currency.
   - Consider sending as absolute host amount, like current `CurrencyPacket`.
 
-- [ ] Pedia repair snapshot, if pedia is shared/global.
+- [ ] Pedia repair snapshot.
   - Initial sync already sends pedia entries.
   - Periodic repair currently does not.
+  - Policy 2026-05-01: pedia is shared/global, so this should be implemented.
 
-- [ ] Player upgrade repair snapshot, if upgrades are shared/global.
+- [ ] Player upgrade repair snapshot.
   - Initial sync already sends upgrade levels.
   - Periodic repair currently does not.
+  - Policy 2026-05-01: upgrades are shared/global in the current architecture, so this should be implemented after live authority hardening.
 
 - [ ] Market price repair snapshot.
   - Initial sync sends prices from `ConnectHandler`.
