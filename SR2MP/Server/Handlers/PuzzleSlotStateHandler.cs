@@ -14,6 +14,27 @@ public sealed class PuzzleSlotStateHandler : BasePacketHandler<PuzzleSlotStatePa
 
     protected override void Handle(PuzzleSlotStatePacket packet, IPEndPoint senderEndPoint)
     {
+        if (!PuzzleStateSyncManager.TryGetSlotState(packet.ID, out var currentFilled))
+        {
+            SrLogger.LogWarning(
+                $"Rejected puzzle slot update from {DescribeClient(senderEndPoint)}: slot='{packet.ID}' is unknown.",
+                SrLogTarget.Both);
+            return;
+        }
+
+        if (currentFilled && !packet.Filled)
+        {
+            SrLogger.LogWarning(
+                $"Rejected stale puzzle slot update from {DescribeClient(senderEndPoint)}: slot='{packet.ID}' attempted to clear an already filled slot.",
+                SrLogTarget.Both);
+            Main.Server.SendToClient(new PuzzleSlotStatePacket
+            {
+                ID = packet.ID,
+                Filled = currentFilled,
+            }, senderEndPoint);
+            return;
+        }
+
         if (!PuzzleStateSyncManager.ApplySlotState(packet.ID, packet.Filled, "server puzzle slot"))
         {
             SrLogger.LogWarning(
@@ -21,6 +42,10 @@ public sealed class PuzzleSlotStateHandler : BasePacketHandler<PuzzleSlotStatePa
                 SrLogTarget.Both);
             return;
         }
+
+        SrLogger.LogMessage(
+            $"Accepted puzzle slot update from {DescribeClient(senderEndPoint)}: slot='{packet.ID}', {currentFilled}->{packet.Filled}.",
+            SrLogTarget.Both);
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);

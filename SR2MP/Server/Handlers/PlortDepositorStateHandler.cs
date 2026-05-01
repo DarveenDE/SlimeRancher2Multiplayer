@@ -14,6 +14,27 @@ public sealed class PlortDepositorStateHandler : BasePacketHandler<PlortDeposito
 
     protected override void Handle(PlortDepositorStatePacket packet, IPEndPoint senderEndPoint)
     {
+        if (!PuzzleStateSyncManager.TryGetDepositorAmount(packet.ID, out var currentAmount))
+        {
+            SrLogger.LogWarning(
+                $"Rejected plort depositor update from {DescribeClient(senderEndPoint)}: depositor='{packet.ID}' is unknown.",
+                SrLogTarget.Both);
+            return;
+        }
+
+        if (packet.AmountDeposited < currentAmount)
+        {
+            SrLogger.LogWarning(
+                $"Rejected stale plort depositor update from {DescribeClient(senderEndPoint)}: depositor='{packet.ID}', attempted {packet.AmountDeposited} below host {currentAmount}.",
+                SrLogTarget.Both);
+            Main.Server.SendToClient(new PlortDepositorStatePacket
+            {
+                ID = packet.ID,
+                AmountDeposited = currentAmount,
+            }, senderEndPoint);
+            return;
+        }
+
         if (!PuzzleStateSyncManager.ApplyDepositorState(packet.ID, packet.AmountDeposited, "server plort depositor"))
         {
             SrLogger.LogWarning(
@@ -21,6 +42,10 @@ public sealed class PlortDepositorStateHandler : BasePacketHandler<PlortDeposito
                 SrLogTarget.Both);
             return;
         }
+
+        SrLogger.LogMessage(
+            $"Accepted plort depositor update from {DescribeClient(senderEndPoint)}: depositor='{packet.ID}', {currentAmount}->{packet.AmountDeposited}.",
+            SrLogTarget.Both);
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);

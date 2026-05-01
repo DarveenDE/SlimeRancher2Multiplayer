@@ -58,10 +58,15 @@ public static class MultiplayerLaunchCoordinator
     private static ServerLaunchSettings? hostSaveSelectionSettings;
     private static ushort hostSaveSelectionPort;
     private static bool hostSaveSelectionArmed;
+    private static ServerLaunchSettings? joinSaveSelectionSettings;
+    private static ServerAddress joinSaveSelectionAddress;
+    private static bool joinSaveSelectionArmed;
     private static bool executingPendingLaunch;
 
     public static PendingMultiplayerLaunch? PendingLaunch => pendingLaunch;
     public static bool IsHostSaveSelectionArmed => hostSaveSelectionArmed;
+    public static bool IsJoinSaveSelectionArmed => joinSaveSelectionArmed;
+    public static bool IsSaveSelectionArmed => hostSaveSelectionArmed || joinSaveSelectionArmed;
     public static MultiplayerLaunchState State { get; private set; } = MultiplayerLaunchState.Idle;
     public static string StatusMessage { get; private set; } = string.Empty;
 
@@ -76,6 +81,9 @@ public static class MultiplayerLaunchCoordinator
         hostSaveSelectionArmed = false;
         hostSaveSelectionPort = 0;
         hostSaveSelectionSettings = null;
+        joinSaveSelectionArmed = false;
+        joinSaveSelectionAddress = default;
+        joinSaveSelectionSettings = null;
         pendingLaunch = new PendingMultiplayerLaunch
         {
             Type = PendingMultiplayerLaunchType.Host,
@@ -101,6 +109,9 @@ public static class MultiplayerLaunchCoordinator
         hostSaveSelectionArmed = true;
         hostSaveSelectionPort = hostPort;
         hostSaveSelectionSettings = settings ?? ServerLaunchSettings.FromPreferences();
+        joinSaveSelectionArmed = false;
+        joinSaveSelectionAddress = default;
+        joinSaveSelectionSettings = null;
         SetState(MultiplayerLaunchState.WaitingForSaveSelection, "Select a save in the normal Load Game menu to host it.");
         return true;
     }
@@ -132,6 +143,12 @@ public static class MultiplayerLaunchCoordinator
         ServerAddress joinAddress,
         ServerLaunchSettings? settings = null)
     {
+        hostSaveSelectionArmed = false;
+        hostSaveSelectionPort = 0;
+        hostSaveSelectionSettings = null;
+        joinSaveSelectionArmed = false;
+        joinSaveSelectionAddress = default;
+        joinSaveSelectionSettings = null;
         pendingLaunch = new PendingMultiplayerLaunch
         {
             Type = PendingMultiplayerLaunchType.Join,
@@ -144,12 +161,57 @@ public static class MultiplayerLaunchCoordinator
         SetState(MultiplayerLaunchState.WaitingForGameContext, "Join will start after the selected client save finishes loading.");
     }
 
+    public static bool BeginJoinSaveSelection(ServerAddress joinAddress, ServerLaunchSettings? settings = null)
+    {
+        if (string.IsNullOrWhiteSpace(joinAddress.Host) || joinAddress.Port == 0)
+        {
+            Fail("Missing server address.");
+            return false;
+        }
+
+        pendingLaunch = null;
+        executingPendingLaunch = false;
+        hostSaveSelectionArmed = false;
+        hostSaveSelectionPort = 0;
+        hostSaveSelectionSettings = null;
+        joinSaveSelectionArmed = true;
+        joinSaveSelectionAddress = joinAddress;
+        joinSaveSelectionSettings = settings ?? ServerLaunchSettings.FromPreferences();
+        SetState(MultiplayerLaunchState.WaitingForSaveSelection, $"Select a client save in the normal Load Game menu to join {joinAddress.Display}.");
+        return true;
+    }
+
+    public static bool TryPrepareJoinFromSelectedSave(Summary? summary)
+    {
+        if (!joinSaveSelectionArmed)
+            return false;
+
+        if (summary == null || summary.IsInvalid)
+        {
+            Fail("Selected save is invalid and cannot be used for joining.");
+            return false;
+        }
+
+        var identifier = summary.SaveIdentifier;
+        string? gameName = identifier?.GameName ?? summary.Name;
+        string? saveName = identifier?.SaveName ?? summary.SaveName;
+        var address = joinSaveSelectionAddress;
+        PrepareJoin(gameName, saveName, address, joinSaveSelectionSettings);
+        SetState(
+            MultiplayerLaunchState.LoadingSave,
+            $"Loading {GetSaveDisplayName(summary)}. Join will start after the save is ready.");
+        return true;
+    }
+
     public static void Clear()
     {
         pendingLaunch = null;
         hostSaveSelectionArmed = false;
         hostSaveSelectionPort = 0;
         hostSaveSelectionSettings = null;
+        joinSaveSelectionArmed = false;
+        joinSaveSelectionAddress = default;
+        joinSaveSelectionSettings = null;
         executingPendingLaunch = false;
         SetState(MultiplayerLaunchState.Idle, string.Empty);
     }
@@ -160,6 +222,9 @@ public static class MultiplayerLaunchCoordinator
         hostSaveSelectionArmed = false;
         hostSaveSelectionPort = 0;
         hostSaveSelectionSettings = null;
+        joinSaveSelectionArmed = false;
+        joinSaveSelectionAddress = default;
+        joinSaveSelectionSettings = null;
         executingPendingLaunch = false;
         SetState(MultiplayerLaunchState.Cancelled, message);
     }

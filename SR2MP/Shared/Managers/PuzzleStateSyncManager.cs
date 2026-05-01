@@ -36,9 +36,39 @@ public static class PuzzleStateSyncManager
         return false;
     }
 
+    public static bool TryGetSlotState(string id, out bool filled)
+    {
+        filled = false;
+
+        if (!SceneContext.Instance || !SceneContext.Instance.GameModel || string.IsNullOrWhiteSpace(id))
+            return false;
+
+        if (!SceneContext.Instance.GameModel.slots.TryGetValue(id, out var model) || model == null)
+            return false;
+
+        filled = model.filled;
+        return true;
+    }
+
+    public static bool TryGetDepositorAmount(string id, out int amountDeposited)
+    {
+        amountDeposited = 0;
+
+        if (!SceneContext.Instance || !SceneContext.Instance.GameModel || string.IsNullOrWhiteSpace(id))
+            return false;
+
+        if (!SceneContext.Instance.GameModel.depositors.TryGetValue(id, out var model) || model == null)
+            return false;
+
+        amountDeposited = model.AmountDeposited;
+        return true;
+    }
+
     public static bool ApplySlotState(string id, bool filled, string source)
     {
         if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
+            return false;
+        if (string.IsNullOrWhiteSpace(id))
             return false;
 
         var gameModel = SceneContext.Instance.GameModel;
@@ -60,7 +90,10 @@ public static class PuzzleStateSyncManager
         LogSlotRepairCorrection(isRepairSnapshot, id, true, beforeFilled, true, filled);
 
         if (!model.gameObj)
+        {
+            LogMissingVisibleTarget("Puzzle slot", id, source);
             return true;
+        }
 
         var slot = model.gameObj.GetComponent<PuzzleSlot>();
         if (!slot)
@@ -69,15 +102,7 @@ public static class PuzzleStateSyncManager
             return false;
         }
 
-        handlingPacket = true;
-        try
-        {
-            slot.OnFilledChangedFromModel();
-        }
-        finally
-        {
-            handlingPacket = false;
-        }
+        RunWithHandlingPacket(() => slot.OnFilledChangedFromModel());
 
         return true;
     }
@@ -85,6 +110,8 @@ public static class PuzzleStateSyncManager
     public static bool ApplyDepositorState(string id, int amountDeposited, string source)
     {
         if (!SceneContext.Instance || !SceneContext.Instance.GameModel)
+            return false;
+        if (string.IsNullOrWhiteSpace(id))
             return false;
 
         var gameModel = SceneContext.Instance.GameModel;
@@ -106,7 +133,10 @@ public static class PuzzleStateSyncManager
         LogDepositorRepairCorrection(isRepairSnapshot, id, true, beforeAmount, true, amountDeposited);
 
         if (!model._gameObject)
+        {
+            LogMissingVisibleTarget("Plort depositor", id, source);
             return true;
+        }
 
         var depositor = model._gameObject.GetComponent<PlortDepositor>();
         if (!depositor)
@@ -115,17 +145,20 @@ public static class PuzzleStateSyncManager
             return false;
         }
 
-        handlingPacket = true;
-        try
-        {
-            depositor.OnFilledChangedFromModel();
-        }
-        finally
-        {
-            handlingPacket = false;
-        }
+        RunWithHandlingPacket(() => depositor.OnFilledChangedFromModel());
 
         return true;
+    }
+
+    private static void LogMissingVisibleTarget(string area, string id, string source)
+    {
+        if (source.Contains("initial", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("repair", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        SrLogger.LogWarning(
+            $"{area} '{id}' has no visible GameObject while applying {source}; model state was updated only.",
+            SrLogTarget.Both);
     }
 
     private static void LogSlotRepairCorrection(

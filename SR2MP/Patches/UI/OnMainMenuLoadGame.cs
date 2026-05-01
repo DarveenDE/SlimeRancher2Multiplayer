@@ -9,26 +9,41 @@ public static class OnMainMenuLoadGame
 {
     public static void Prefix(LoadGameBehaviorModel __instance)
     {
-        if (!MultiplayerLaunchCoordinator.IsHostSaveSelectionArmed)
+        if (!MultiplayerLaunchCoordinator.IsSaveSelectionArmed)
             return;
 
         try
         {
             var summary = __instance.GameDataSummary;
-            if (MultiplayerLaunchCoordinator.TryPrepareHostFromSelectedSave(summary))
+            bool prepared = MultiplayerLaunchCoordinator.IsHostSaveSelectionArmed
+                ? MultiplayerLaunchCoordinator.TryPrepareHostFromSelectedSave(summary)
+                : MultiplayerLaunchCoordinator.TryPrepareJoinFromSelectedSave(summary);
+
+            if (prepared)
             {
-                string displayName = !string.IsNullOrWhiteSpace(summary.DisplayName)
-                    ? summary.DisplayName
-                    : summary.Name;
                 SrLogger.LogMessage(
-                    $"Selected save '{displayName}' for main-menu hosting.",
+                    $"Selected save '{FormatSummary(summary)}' for main-menu multiplayer launch.",
                     SrLogTarget.Both);
             }
         }
         catch (Exception ex)
         {
-            MultiplayerLaunchCoordinator.Cancel("Could not prepare the selected save for hosting.");
-            SrLogger.LogWarning($"Failed to prepare main-menu host launch: {ex}", SrLogTarget.Both);
+            MultiplayerLaunchCoordinator.Cancel("Could not prepare the selected save for multiplayer.");
+            SrLogger.LogWarning($"Failed to prepare main-menu multiplayer launch: {ex}", SrLogTarget.Both);
         }
+    }
+
+    private static string FormatSummary(Il2CppMonomiPark.SlimeRancher.Persist.Summary? summary)
+    {
+        if (summary == null)
+            return "unknown save";
+
+        if (!string.IsNullOrWhiteSpace(summary.DisplayName))
+            return summary.DisplayName;
+
+        if (!string.IsNullOrWhiteSpace(summary.Name))
+            return summary.Name;
+
+        return summary.SaveName ?? "unknown save";
     }
 }

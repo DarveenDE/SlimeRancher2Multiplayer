@@ -20,7 +20,7 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
 
     private const string MenuName = "SR2MP_MainMenuMultiplayerMenu";
     private const float PanelWidth = 940f;
-    private const float PanelHeight = 610f;
+    private const float PanelHeight = 700f;
     private const float ActionButtonWidth = 280f;
 
     public static MainMenuMultiplayerMenu Instance { get; private set; }
@@ -31,7 +31,16 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
 
     private Transform contentRoot = null!;
     private TextMeshProUGUI statusText = null!;
+    private TMP_InputField? joinAddressField;
+    private TMP_InputField? hostPortField;
+    private TMP_InputField? usernameField;
     private MainMenuTab activeTab = MainMenuTab.Home;
+    private string joinAddressInput = "127.0.0.1:1919";
+    private string hostPortInput = "1919";
+    private string usernameInput = "Player";
+    private ServerAddress pendingJoinAddress;
+    private bool confirmingJoin;
+    private bool allowCheatsInput;
     private string feedback = string.Empty;
 
     public static bool EnsureCreated()
@@ -97,7 +106,9 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void Open()
     {
+        SyncInputsFromPreferences();
         activeTab = MainMenuTab.Home;
+        confirmingJoin = false;
         feedback = string.Empty;
         gameObject.SetActive(true);
         RefreshContent();
@@ -106,9 +117,19 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void Close()
     {
+        confirmingJoin = false;
         feedback = string.Empty;
         ClearContent();
         gameObject.SetActive(false);
+    }
+
+    private void Update()
+    {
+        if (!gameObject.activeSelf || !statusText)
+            return;
+
+        SyncInputFields();
+        statusText.text = GetStatusText();
     }
 
     [HideFromIl2Cpp]
@@ -224,7 +245,7 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         contentRect.offsetMax = new Vector2(-40f, -205f);
 
         var layout = content.AddComponent<VerticalLayoutGroup>();
-        layout.spacing = 16f;
+        layout.spacing = 12f;
         layout.padding = new RectOffset(0, 0, 8, 0);
         layout.childControlWidth = true;
         layout.childControlHeight = true;
@@ -239,7 +260,9 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     {
         CreateButton(parent, $"Tab_{label}", label, () =>
         {
+            SyncInputFields();
             activeTab = tab;
+            confirmingJoin = false;
             feedback = string.Empty;
             RefreshContent();
         }, ButtonVisual.Secondary, 0f, true);
@@ -300,21 +323,42 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     private void DrawHost()
     {
         AddText("Host Save", 28f, Color.white, 42f);
-        AddText("Select a save through SR2's normal Load Game menu. SR2MP will start hosting automatically after that save finishes loading.",
+        AddText("Choose host settings here, then select the save through SR2's normal Load Game menu. SR2MP will start hosting after the save loads.",
             21f,
             new Color(0.78f, 0.88f, 0.95f, 1f),
             86f);
-        AddText($"Default port: {Main.SavedHostPort}", 21f, new Color(0.86f, 0.92f, 1f, 1f), 38f);
+
+        hostPortField = AddInputRow("Port", hostPortInput, "1919", 5);
+
+        var cheatsRow = AddRow(56f);
+        AddRowLabel(cheatsRow.transform, "Allow Cheats");
+        CreateButton(cheatsRow.transform,
+            "HostAllowCheatsButton",
+            allowCheatsInput ? "Yes" : "No",
+            () =>
+            {
+                SyncInputFields();
+                allowCheatsInput = !allowCheatsInput;
+                RefreshContent();
+            },
+            ButtonVisual.Secondary,
+            170f);
+        AddFlexibleSpace(cheatsRow.transform);
+
+        bool validPort = ushort.TryParse(hostPortInput, out ushort hostPort) && hostPort > 0;
+        if (!validPort)
+            AddText("Invalid port. Use a number from 1 to 65535.", 21f, new Color(1f, 0.76f, 0.6f, 1f), 38f);
+        else if (!CanStartNetworkAction())
+            AddText(GetUnavailableActionText(), 21f, new Color(1f, 0.76f, 0.6f, 1f), 38f);
+        else if (MultiplayerLaunchCoordinator.IsHostSaveSelectionArmed)
+            AddText("Host save selection is armed. Select a save in SR2's Load Game menu.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
+        else
+            AddText($"Ready to host on port {hostPort}.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
 
         var row = AddRow(58f);
         if (MultiplayerLaunchCoordinator.IsHostSaveSelectionArmed)
         {
-            CreateButton(row.transform, "CancelHostSelectionButton", "Cancel", () =>
-            {
-                MultiplayerLaunchCoordinator.Cancel("Host save selection cancelled.");
-                feedback = "Host save selection cancelled.";
-                RefreshContent();
-            }, ButtonVisual.Secondary);
+            CreateButton(row.transform, "CancelHostSelectionButton", "Cancel", CancelPendingSelection, ButtonVisual.Secondary);
         }
         else
         {
@@ -327,14 +371,30 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void BeginHostSaveSelection()
     {
-        if (!ushort.TryParse(Main.SavedHostPort, out ushort hostPort) || hostPort == 0)
+        SyncInputFields();
+        if (!ushort.TryParse(hostPortInput, out ushort hostPort) || hostPort == 0)
         {
-            feedback = "Default host port is invalid. Set a valid host port in the in-game multiplayer settings first.";
+            feedback = "Invalid port. Use a number from 1 to 65535.";
             RefreshContent();
             return;
         }
 
-        if (!MultiplayerLaunchCoordinator.BeginHostSaveSelection(hostPort))
+        if (!CanStartNetworkAction())
+        {
+            feedback = GetUnavailableActionText();
+            RefreshContent();
+            return;
+        }
+
+        Main.SetConfigValue("host_port", hostPort.ToString());
+        Main.SetConfigValue("allow_cheats", allowCheatsInput);
+
+        var settings = new ServerLaunchSettings
+        {
+            AllowCheats = allowCheatsInput,
+        };
+
+        if (!MultiplayerLaunchCoordinator.BeginHostSaveSelection(hostPort, settings))
         {
             feedback = MultiplayerLaunchCoordinator.StatusMessage;
             RefreshContent();
@@ -347,20 +407,63 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void DrawJoin()
     {
+        if (confirmingJoin)
+        {
+            DrawJoinConfirmation();
+            return;
+        }
+
         AddText("Join Server", 28f, Color.white, 42f);
-        AddText("Joining from the main menu will load a client save first, then connect and sync it with the host.",
+        AddText("Enter a server address, then choose a client save through SR2's normal Load Game menu.",
             21f,
             new Color(0.78f, 0.88f, 0.95f, 1f),
             86f);
 
-        DrawRecentServers();
+        joinAddressField = AddInputRow("Server address", joinAddressInput, "127.0.0.1:1919", 160);
+
+        bool validAddress = ServerAddressParser.TryParse(joinAddressInput, hostPortInput, out var address, out var addressError);
+        if (!validAddress)
+            AddText(addressError, 21f, new Color(1f, 0.76f, 0.6f, 1f), 38f);
+        else if (!CanStartNetworkAction())
+            AddText(GetUnavailableActionText(), 21f, new Color(1f, 0.76f, 0.6f, 1f), 38f);
+        else if (MultiplayerLaunchCoordinator.IsJoinSaveSelectionArmed)
+            AddText("Join save selection is armed. Select a client save in SR2's Load Game menu.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
+        else
+            AddText($"Ready to join {address.Display}.", 21f, new Color(0.74f, 0.94f, 0.9f, 1f), 38f);
 
         var row = AddRow(58f);
-        CreateButton(row.transform, "JoinPlaceholderButton", "Enter Address", () =>
+        if (MultiplayerLaunchCoordinator.IsJoinSaveSelectionArmed)
         {
-            feedback = "Address entry and client-save selection are the next pieces to connect.";
+            CreateButton(row.transform, "CancelJoinSelectionButton", "Cancel", CancelPendingSelection, ButtonVisual.Secondary);
+        }
+        else
+        {
+            CreateButton(row.transform, "SelectJoinSaveButton", "Select Client Save", HandleJoinPressed, ButtonVisual.Primary, 330f);
+        }
+
+        AddFlexibleSpace(row.transform);
+
+        DrawRecentServers();
+    }
+
+    [HideFromIl2Cpp]
+    private void DrawJoinConfirmation()
+    {
+        AddText("Use an empty client save", 28f, Color.white, 42f);
+        AddText($"Server: {pendingJoinAddress.Display}", 22f, new Color(0.86f, 0.92f, 1f, 1f), 38f);
+        AddText("Joining will sync the selected save with the hosted world. Use a fresh client save to avoid losing local progress.",
+            21f,
+            new Color(1f, 0.9f, 0.62f, 1f),
+            76f);
+
+        var row = AddRow(58f);
+        CreateButton(row.transform, "ConfirmJoinSaveButton", "Select Save", BeginJoinSaveSelection, ButtonVisual.Primary, 260f);
+        CreateButton(row.transform, "BackJoinButton", "Back", () =>
+        {
+            confirmingJoin = false;
+            feedback = string.Empty;
             RefreshContent();
-        }, ButtonVisual.Primary);
+        }, ButtonVisual.Secondary, 190f);
         AddFlexibleSpace(row.transform);
     }
 
@@ -368,15 +471,35 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     private void DrawSettings()
     {
         AddText("Settings", 28f, Color.white, 42f);
-        AddText($"Username: {Main.Username}", 21f, new Color(0.86f, 0.92f, 1f, 1f), 36f);
-        AddText($"Allow cheats: {Main.AllowCheats.ToStringYesOrNo()}", 21f, new Color(0.86f, 0.92f, 1f, 1f), 36f);
-        AddText($"Default host port: {Main.SavedHostPort}", 21f, new Color(0.86f, 0.92f, 1f, 1f), 36f);
+        usernameField = AddInputRow("Username", usernameInput, "Player", 32);
+
+        var cheatsRow = AddRow(56f);
+        AddRowLabel(cheatsRow.transform, "Allow Cheats");
+        CreateButton(cheatsRow.transform,
+            "SettingsAllowCheatsButton",
+            allowCheatsInput ? "Yes" : "No",
+            () =>
+            {
+                SyncInputFields();
+                allowCheatsInput = !allowCheatsInput;
+                RefreshContent();
+            },
+            ButtonVisual.Secondary,
+            170f);
+        AddFlexibleSpace(cheatsRow.transform);
+
+        AddText($"Default host port: {hostPortInput}", 21f, new Color(0.86f, 0.92f, 1f, 1f), 36f);
+
+        var saveRow = AddRow(58f);
+        CreateButton(saveRow.transform, "SaveSettingsButton", "Save Settings", HandleSaveSettingsPressed, ButtonVisual.Primary);
+        AddFlexibleSpace(saveRow.transform);
     }
 
     [HideFromIl2Cpp]
     private void DrawRecentServers()
     {
-        var recentServers = RecentServerService.Load().Take(3).ToList();
+        int maxServers = activeTab == MainMenuTab.Join ? 2 : 3;
+        var recentServers = RecentServerService.Load().Take(maxServers).ToList();
         if (recentServers.Count == 0)
             return;
 
@@ -386,8 +509,10 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
             var row = AddRow(48f);
             CreateButton(row.transform, $"Recent_{recentServer.Display}", recentServer.Display, () =>
             {
+                joinAddressInput = recentServer.Display;
                 activeTab = MainMenuTab.Join;
-                feedback = $"Selected {recentServer.Display}. Client-save selection is not connected yet.";
+                confirmingJoin = false;
+                feedback = string.Empty;
                 RefreshContent();
             }, ButtonVisual.Secondary, 420f);
             AddFlexibleSpace(row.transform);
@@ -401,6 +526,135 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
             return MultiplayerLaunchCoordinator.StatusMessage;
 
         return "Main-menu multiplayer setup is ready.";
+    }
+
+    [HideFromIl2Cpp]
+    private void HandleJoinPressed()
+    {
+        SyncInputFields();
+        if (!ServerAddressParser.TryParse(joinAddressInput, hostPortInput, out var address, out var error))
+        {
+            feedback = error;
+            RefreshContent();
+            return;
+        }
+
+        if (!CanStartNetworkAction())
+        {
+            feedback = GetUnavailableActionText();
+            RefreshContent();
+            return;
+        }
+
+        pendingJoinAddress = address;
+        confirmingJoin = true;
+        feedback = string.Empty;
+        RefreshContent();
+    }
+
+    [HideFromIl2Cpp]
+    private void BeginJoinSaveSelection()
+    {
+        if (!CanStartNetworkAction())
+        {
+            feedback = GetUnavailableActionText();
+            confirmingJoin = false;
+            RefreshContent();
+            return;
+        }
+
+        if (!MultiplayerLaunchCoordinator.BeginJoinSaveSelection(pendingJoinAddress))
+        {
+            feedback = MultiplayerLaunchCoordinator.StatusMessage;
+            confirmingJoin = false;
+            RefreshContent();
+            return;
+        }
+
+        confirmingJoin = false;
+        Close();
+    }
+
+    [HideFromIl2Cpp]
+    private void CancelPendingSelection()
+    {
+        MultiplayerLaunchCoordinator.Cancel("Main-menu multiplayer save selection cancelled.");
+        confirmingJoin = false;
+        feedback = "Save selection cancelled.";
+        RefreshContent();
+    }
+
+    [HideFromIl2Cpp]
+    private void HandleSaveSettingsPressed()
+    {
+        SyncInputFields();
+        if (string.IsNullOrWhiteSpace(usernameInput))
+        {
+            feedback = "You must set a username.";
+            RefreshContent();
+            return;
+        }
+
+        Main.SetConfigValue("username", usernameInput.Trim());
+        Main.SetConfigValue("allow_cheats", allowCheatsInput);
+        if (ushort.TryParse(hostPortInput, out ushort hostPort) && hostPort > 0)
+            Main.SetConfigValue("host_port", hostPort.ToString());
+
+        feedback = "Settings saved.";
+        RefreshContent();
+    }
+
+    [HideFromIl2Cpp]
+    private void SyncInputsFromPreferences()
+    {
+        usernameInput = Main.Username;
+        allowCheatsInput = Main.AllowCheats;
+        hostPortInput = string.IsNullOrWhiteSpace(Main.SavedHostPort) ? "1919" : Main.SavedHostPort;
+        string savedHost = string.IsNullOrWhiteSpace(Main.SavedConnectIP) ? "127.0.0.1" : Main.SavedConnectIP;
+        string savedPort = string.IsNullOrWhiteSpace(Main.SavedConnectPort) ? hostPortInput : Main.SavedConnectPort;
+        joinAddressInput = new ServerAddress(savedHost, ushort.TryParse(savedPort, out var port) && port > 0 ? port : (ushort)1919).Display;
+    }
+
+    [HideFromIl2Cpp]
+    private void SyncInputFields()
+    {
+        if (joinAddressField is not null)
+            joinAddressInput = joinAddressField.text?.Trim() ?? string.Empty;
+
+        if (hostPortField is not null)
+            hostPortInput = hostPortField.text?.Trim() ?? string.Empty;
+
+        if (usernameField is not null)
+            usernameInput = usernameField.text?.Trim() ?? string.Empty;
+    }
+
+    [HideFromIl2Cpp]
+    private void ClearInputReferences()
+    {
+        joinAddressField = null;
+        hostPortField = null;
+        usernameField = null;
+    }
+
+    [HideFromIl2Cpp]
+    private static bool CanStartNetworkAction()
+    {
+        return !Main.Server.IsRunning() && !Main.Client.IsConnected && !Main.Client.IsConnectionPending;
+    }
+
+    [HideFromIl2Cpp]
+    private static string GetUnavailableActionText()
+    {
+        if (Main.Server.IsRunning())
+            return "Close your hosted world before joining or hosting another one.";
+
+        if (Main.Client.IsConnectionPending)
+            return "Please wait until the current join attempt finishes, or cancel it first.";
+
+        if (Main.Client.IsConnected)
+            return "Disconnect before joining or hosting another world.";
+
+        return "Please wait until the current multiplayer action finishes.";
     }
 
     [HideFromIl2Cpp]
@@ -443,6 +697,87 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
         layoutElement.preferredHeight = height;
 
         contentItems.Add(textObject);
+    }
+
+    [HideFromIl2Cpp]
+    private TMP_InputField AddInputRow(string label, string value, string placeholder, int characterLimit)
+    {
+        var row = AddRow(58f);
+        AddRowLabel(row.transform, label);
+        return CreateInput(row.transform, $"Input_{label}", value, placeholder, characterLimit);
+    }
+
+    [HideFromIl2Cpp]
+    private void AddRowLabel(Transform row, string label)
+    {
+        var labelObject = new GameObject($"Label_{label}");
+        labelObject.transform.SetParent(row, false);
+        labelObject.AddComponent<RectTransform>();
+
+        var layoutElement = labelObject.AddComponent<LayoutElement>();
+        layoutElement.minWidth = 190f;
+        layoutElement.preferredWidth = 190f;
+
+        var tmp = labelObject.AddComponent<TextMeshProUGUI>();
+        tmp.text = label;
+        tmp.fontSize = 22f;
+        tmp.color = new Color(0.86f, 0.92f, 1f, 1f);
+        tmp.alignment = TextAlignmentOptions.MidlineLeft;
+        tmp.enableWordWrapping = false;
+    }
+
+    [HideFromIl2Cpp]
+    private TMP_InputField CreateInput(Transform parent, string name, string value, string placeholder, int characterLimit)
+    {
+        var inputObject = new GameObject(name);
+        inputObject.transform.SetParent(parent, false);
+        inputObject.AddComponent<RectTransform>();
+
+        var layoutElement = inputObject.AddComponent<LayoutElement>();
+        layoutElement.flexibleWidth = 1f;
+        layoutElement.minHeight = 52f;
+        layoutElement.preferredHeight = 52f;
+
+        var image = inputObject.AddComponent<Image>();
+        image.color = new Color(0.045f, 0.06f, 0.085f, 0.92f);
+
+        var input = inputObject.AddComponent<TMP_InputField>();
+        input.targetGraphic = image;
+        input.characterLimit = characterLimit;
+        input.lineType = TMP_InputField.LineType.SingleLine;
+
+        var viewportObject = new GameObject("TextViewport");
+        viewportObject.transform.SetParent(inputObject.transform, false);
+        var viewportRect = viewportObject.AddComponent<RectTransform>();
+        viewportRect.anchorMin = Vector2.zero;
+        viewportRect.anchorMax = Vector2.one;
+        viewportRect.offsetMin = new Vector2(18f, 4f);
+        viewportRect.offsetMax = new Vector2(-18f, -4f);
+        input.textViewport = viewportRect;
+
+        var textObject = new GameObject("Text");
+        textObject.transform.SetParent(viewportObject.transform, false);
+        Stretch(textObject.AddComponent<RectTransform>());
+        var text = textObject.AddComponent<TextMeshProUGUI>();
+        text.fontSize = 23f;
+        text.color = Color.white;
+        text.alignment = TextAlignmentOptions.MidlineLeft;
+        text.enableWordWrapping = false;
+        input.textComponent = text;
+
+        var placeholderObject = new GameObject("Placeholder");
+        placeholderObject.transform.SetParent(viewportObject.transform, false);
+        Stretch(placeholderObject.AddComponent<RectTransform>());
+        var placeholderText = placeholderObject.AddComponent<TextMeshProUGUI>();
+        placeholderText.text = placeholder;
+        placeholderText.fontSize = 23f;
+        placeholderText.color = new Color(1f, 1f, 1f, 0.42f);
+        placeholderText.alignment = TextAlignmentOptions.MidlineLeft;
+        placeholderText.enableWordWrapping = false;
+        input.placeholder = placeholderText;
+
+        input.text = value;
+        return input;
     }
 
     [HideFromIl2Cpp]
@@ -505,6 +840,8 @@ public sealed class MainMenuMultiplayerMenu : MonoBehaviour
     [HideFromIl2Cpp]
     private void ClearContent()
     {
+        ClearInputReferences();
+
         foreach (var item in contentItems)
         {
             if (item)

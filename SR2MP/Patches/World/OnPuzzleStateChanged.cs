@@ -16,7 +16,10 @@ public static class OnPuzzleStateChanged
             return;
 
         if (!PuzzleStateSyncManager.TryGetSlotId(__instance, out var id))
+        {
+            SrLogger.LogWarning("Puzzle slot changed locally but no slot id could be resolved; state was not synced.", SrLogTarget.Both);
             return;
+        }
 
         Main.SendToAllOrServer(new PuzzleSlotStatePacket
         {
@@ -33,7 +36,10 @@ public static class OnPuzzleStateChanged
             return;
 
         if (!PuzzleStateSyncManager.TryGetDepositorId(__instance, out var id))
+        {
+            SrLogger.LogWarning("Plort depositor changed locally but no depositor id could be resolved; state was not synced.", SrLogTarget.Both);
             return;
+        }
 
         Main.SendToAllOrServer(new PlortDepositorStatePacket
         {

@@ -74,6 +74,17 @@ Current gadget lifecycle matrix:
 - Reconnect after gadget changes: host snapshot remains the source of truth; orphaned local gadgets should be cleared before snapshot spawn.
 - Still open: add a focused gadget repair snapshot if missed live packets can leave duplicate/missing gadgets without reconnect.
 
+Puzzle slot / plort statue update 2026-05-01:
+
+- The plort-statue bug is not covered by actor/gadget sync; it uses the dedicated `PuzzleSlotState` and `PlortDepositorState` packets.
+- Current code already had live sync hooks, initial join sync, and repair snapshot coverage for puzzle slots and plort depositors, so the area was partially covered before this pass.
+- Risk found: failed local ID resolution was silent, so a client could fill a local puzzle slot without any useful log if the model could not be mapped back to a host-known slot/depositor id.
+- Risk found: the host accepted client slot/depositor states too loosely, including unknown ids and stale/decreasing states.
+- Implemented diagnostics when a local puzzle slot or plort depositor changes but no network id can be resolved.
+- Implemented host-side rejection for unknown puzzle slot/depositor ids, clearing already filled slots, and decreasing plort depositor amounts; stale clients are corrected back to host state.
+- `PuzzleStateSyncManager` now uses the packet echo guard when applying visible slot/depositor changes and logs when live updates only reach the model because the visible target GameObject is missing.
+- Release build verified after this hardening and copied to both host/client `Mods/SR2MP.dll` paths at 15:50.
+
 Current status: ready for a targeted retest with periodic full repair left off. If the freeze remains, the next likely focus is the 50 failed initial actor spawns / missing actor ids, especially `SpawnResourceModel.NotifyParticipants` and the repeated actor updates for non-existent actor ids.
 
 1. Harden shared currency changes. **Status: done 2026-05-01.**
