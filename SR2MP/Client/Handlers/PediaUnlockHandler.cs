@@ -12,12 +12,21 @@ public sealed class PediaUnlockHandler : BaseClientPacketHandler<PediaUnlockPack
 
     protected override void Handle(PediaUnlockPacket packet)
     {
+        if (string.IsNullOrWhiteSpace(packet.ID))
+        {
+            SrLogger.LogWarning("Ignoring pedia unlock with empty id.", SrLogTarget.Both);
+            return;
+        }
+
         var lookup = GameContext.Instance.AutoSaveDirector._saveReferenceTranslation._pediaEntryLookup;
         if (!lookup.TryGetValue(packet.ID, out var entry) || !entry)
         {
             SrLogger.LogWarning($"Ignoring pedia unlock with unknown id {packet.ID}.", SrLogTarget.Both);
             return;
         }
+
+        if (SceneContext.Instance.PediaDirector.IsUnlocked(entry))
+            return;
 
         RunWithHandlingPacket(() => SceneContext.Instance.PediaDirector.Unlock(entry, packet.Popup));
     }

@@ -67,10 +67,18 @@ public sealed class PacketManager
         bool isConnectPacket = packetType == (byte)PacketType.Connect;
         bool isKnownClient = clientManager.TryGetClient(clientEp, out _);
 
+        if (!PacketAuthority.CanClientSendToServer(packetType))
+        {
+            SrLogger.LogWarning(
+                $"Rejected client packet from {clientEp}: {PacketAuthority.FormatPacketType(packetType)} is {PacketAuthority.GetClientToServerRule(packetType)} and cannot be sent to the host.",
+                SrLogTarget.Both);
+            return;
+        }
+
         if (!isKnownClient && !isConnectPacket && !isAckPacket)
         {
             SrLogger.LogWarning(
-                $"Ignored packet from unknown client {clientEp}: {(PacketType)packetType} (type={packetType})",
+                $"Ignored packet from unknown client {clientEp}: {PacketAuthority.FormatPacketType(packetType)}",
                 SrLogTarget.Both);
             return;
         }

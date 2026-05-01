@@ -23,6 +23,19 @@ public sealed class PlayerUpgradeHandler : BaseClientPacketHandler<PlayerUpgrade
             return;
         }
 
-        RunWithHandlingPacket(() => model.IncrementUpgradeLevel(upgrade));
+        var currentLevel = model.GetUpgradeLevel(upgrade);
+        var nextLevel = currentLevel + 1;
+        if (!upgrade.UpgradeLevelExist(nextLevel))
+        {
+            SrLogger.LogWarning(
+                $"Ignoring player upgrade '{upgrade.name}' ({packet.UpgradeID}); current level {currentLevel} cannot advance to {nextLevel}.",
+                SrLogTarget.Both);
+            return;
+        }
+
+        var upgraded = false;
+        RunWithHandlingPacket(() => upgraded = model.IncrementUpgradeLevel(upgrade));
+        if (!upgraded)
+            SrLogger.LogWarning($"Player upgrade '{upgrade.name}' ({packet.UpgradeID}) was rejected by the local upgrade model.", SrLogTarget.Both);
     }
 }

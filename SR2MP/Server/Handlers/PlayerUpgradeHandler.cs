@@ -20,12 +20,35 @@ public sealed class PlayerUpgradeHandler : BasePacketHandler<PlayerUpgradePacket
 
         if (upgrade == null)
         {
-            SrLogger.LogWarning($"Ignoring player upgrade with unknown id {packet.UpgradeID}.", SrLogTarget.Both);
+            SrLogger.LogWarning($"Ignoring player upgrade with unknown id {packet.UpgradeID} from {DescribeClient(senderEndPoint)}.", SrLogTarget.Both);
             return;
         }
 
-        RunWithHandlingPacket(() => model.IncrementUpgradeLevel(upgrade));
+        var currentLevel = model.GetUpgradeLevel(upgrade);
+        var nextLevel = currentLevel + 1;
+        if (!upgrade.UpgradeLevelExist(nextLevel))
+        {
+            SrLogger.LogWarning(
+                $"Ignoring player upgrade '{upgrade.name}' ({packet.UpgradeID}) from {DescribeClient(senderEndPoint)}; current level {currentLevel} cannot advance to {nextLevel}.",
+                SrLogTarget.Both);
+            return;
+        }
+
+        var upgraded = false;
+        RunWithHandlingPacket(() => upgraded = model.IncrementUpgradeLevel(upgrade));
+        if (!upgraded)
+        {
+            SrLogger.LogWarning(
+                $"Player upgrade '{upgrade.name}' ({packet.UpgradeID}) from {DescribeClient(senderEndPoint)} was rejected by the host upgrade model.",
+                SrLogTarget.Both);
+            return;
+        }
 
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
+
+    private string DescribeClient(IPEndPoint senderEndPoint)
+        => clientManager.TryGetClient(senderEndPoint, out var client) && client != null
+            ? $"{client.PlayerId} ({senderEndPoint})"
+            : senderEndPoint.ToString();
 }

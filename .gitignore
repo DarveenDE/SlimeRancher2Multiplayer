@@ -6,6 +6,11 @@
 # Libraries
 libraries/
 
+#Docs
+
+docs/
+*.md
+
 # Rider stuff (probably duplicate but making sure)
 .idea/
 bin/
