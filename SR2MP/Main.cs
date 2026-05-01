@@ -25,7 +25,9 @@ public sealed class Main : SR2EExpansionV3
 
     static MelonPreferences_Category preferences;
     private const int MultiplayerPauseMenuInsertIndex = 5;
+    private const int MultiplayerMainMenuInsertIndex = 2;
     private CustomPauseMenuButton? multiplayerPauseMenuButton;
+    private CustomMainMenuButton? multiplayerMainMenuButton;
 
     public static string Username => preferences.GetEntry<string>("username").Value;
     public static string SavedConnectPort => preferences.GetEntry<string>("recent_port").Value;
@@ -153,6 +155,17 @@ public sealed class Main : SR2EExpansionV3
 
                 Object.DontDestroyOnLoad(playerPrefab);
 
+                MainMenuMultiplayerMenu.EnsureCreated();
+                multiplayerMainMenuButton ??= new CustomMainMenuButton(
+                    SR2ELanguageManger.AddTranslation("Multiplayer", "b.sr2mp_main_menu_multiplayer", "UI"),
+                    MainMenuMultiplayerMenu.GetTransparentMainMenuIcon(),
+                    MultiplayerMainMenuInsertIndex,
+                    () =>
+                    {
+                        SrLogger.LogMessage("Multiplayer main menu button pressed.", SrLogTarget.Both);
+                        MainMenuMultiplayerMenu.OpenFromMainMenu();
+                    });
+
                 break;
         }
     }
@@ -162,6 +175,7 @@ public sealed class Main : SR2EExpansionV3
         actorManager.Initialize(gameContext);
         NetworkSceneManager.Initialize(gameContext);
         NativeMultiplayerMenu.EnsureCreated();
+        MultiplayerLaunchCoordinator.TryExecutePendingLaunch(gameContext);
 
         // Automatically inserts just by running the constructor.
         multiplayerPauseMenuButton ??= new CustomPauseMenuButton(

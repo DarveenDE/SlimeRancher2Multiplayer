@@ -1,3 +1,5 @@
+using Il2CppMonomiPark.SlimeRancher.Persist;
+
 namespace SR2MP.Shared.Utils;
 
 public enum PendingMultiplayerLaunchType : byte
@@ -53,9 +55,13 @@ public sealed class ServerLaunchSettings
 public static class MultiplayerLaunchCoordinator
 {
     private static PendingMultiplayerLaunch? pendingLaunch;
+    private static ServerLaunchSettings? hostSaveSelectionSettings;
+    private static ushort hostSaveSelectionPort;
+    private static bool hostSaveSelectionArmed;
     private static bool executingPendingLaunch;
 
     public static PendingMultiplayerLaunch? PendingLaunch => pendingLaunch;
+    public static bool IsHostSaveSelectionArmed => hostSaveSelectionArmed;
     public static MultiplayerLaunchState State { get; private set; } = MultiplayerLaunchState.Idle;
     public static string StatusMessage { get; private set; } = string.Empty;
 
@@ -67,6 +73,9 @@ public static class MultiplayerLaunchCoordinator
         ushort hostPort,
         ServerLaunchSettings? settings = null)
     {
+        hostSaveSelectionArmed = false;
+        hostSaveSelectionPort = 0;
+        hostSaveSelectionSettings = null;
         pendingLaunch = new PendingMultiplayerLaunch
         {
             Type = PendingMultiplayerLaunchType.Host,
@@ -77,6 +86,44 @@ public static class MultiplayerLaunchCoordinator
         };
         executingPendingLaunch = false;
         SetState(MultiplayerLaunchState.WaitingForGameContext, "Host will start after the selected save finishes loading.");
+    }
+
+    public static bool BeginHostSaveSelection(ushort hostPort, ServerLaunchSettings? settings = null)
+    {
+        if (hostPort == 0)
+        {
+            Fail("Invalid host port.");
+            return false;
+        }
+
+        pendingLaunch = null;
+        executingPendingLaunch = false;
+        hostSaveSelectionArmed = true;
+        hostSaveSelectionPort = hostPort;
+        hostSaveSelectionSettings = settings ?? ServerLaunchSettings.FromPreferences();
+        SetState(MultiplayerLaunchState.WaitingForSaveSelection, "Select a save in the normal Load Game menu to host it.");
+        return true;
+    }
+
+    public static bool TryPrepareHostFromSelectedSave(Summary? summary)
+    {
+        if (!hostSaveSelectionArmed)
+            return false;
+
+        if (summary == null || summary.IsInvalid)
+        {
+            Fail("Selected save is invalid and cannot be hosted.");
+            return false;
+        }
+
+        var identifier = summary.SaveIdentifier;
+        string? gameName = identifier?.GameName ?? summary.Name;
+        string? saveName = identifier?.SaveName ?? summary.SaveName;
+        PrepareHost(gameName, saveName, hostSaveSelectionPort, hostSaveSelectionSettings);
+        SetState(
+            MultiplayerLaunchState.LoadingSave,
+            $"Loading {GetSaveDisplayName(summary)}. Host will start after the save is ready.");
+        return true;
     }
 
     public static void PrepareJoin(
@@ -100,6 +147,9 @@ public static class MultiplayerLaunchCoordinator
     public static void Clear()
     {
         pendingLaunch = null;
+        hostSaveSelectionArmed = false;
+        hostSaveSelectionPort = 0;
+        hostSaveSelectionSettings = null;
         executingPendingLaunch = false;
         SetState(MultiplayerLaunchState.Idle, string.Empty);
     }
@@ -107,6 +157,9 @@ public static class MultiplayerLaunchCoordinator
     public static void Cancel(string message)
     {
         pendingLaunch = null;
+        hostSaveSelectionArmed = false;
+        hostSaveSelectionPort = 0;
+        hostSaveSelectionSettings = null;
         executingPendingLaunch = false;
         SetState(MultiplayerLaunchState.Cancelled, message);
     }
@@ -209,6 +262,17 @@ public static class MultiplayerLaunchCoordinator
             || message.Contains("same current SR2MP test DLL", StringComparison.OrdinalIgnoreCase)
             ? MultiplayerLaunchState.VersionMismatch
             : MultiplayerLaunchState.Failed;
+    }
+
+    private static string GetSaveDisplayName(Summary summary)
+    {
+        if (!string.IsNullOrWhiteSpace(summary.DisplayName))
+            return summary.DisplayName;
+
+        if (!string.IsNullOrWhiteSpace(summary.Name))
+            return summary.Name;
+
+        return "selected save";
     }
 
     private static void SetState(MultiplayerLaunchState state, string message)
