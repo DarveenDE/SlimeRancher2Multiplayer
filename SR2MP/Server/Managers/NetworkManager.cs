@@ -14,6 +14,7 @@ public sealed class NetworkManager
     private ReliabilityManager? reliabilityManager;
 
     public event Action<byte[], IPEndPoint>? OnDataReceived;
+    public event Action<ReliablePacketFailure>? OnReliablePacketFailed;
 
     public bool IsRunning => isRunning;
 
@@ -45,6 +46,7 @@ public sealed class NetworkManager
             udpClient.Client.ReceiveTimeout = 0;
 
             reliabilityManager = new ReliabilityManager(SendRaw);
+            reliabilityManager.PacketFailed += failure => OnReliablePacketFailed?.Invoke(failure);
             reliabilityManager.Start();
 
             isRunning = true;

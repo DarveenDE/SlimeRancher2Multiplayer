@@ -67,12 +67,13 @@ These are follow-up notes from a source review of the current SR2MP networking c
 - Possible direction: restore heartbeat/ack handling with a short timeout and clean leave broadcast on timeout.
 - Local status: fixed with client heartbeat sends, server heartbeat ACKs, server-side dead-client removal, and client-side lost-host timeout handling.
 
-## P2: Reliable send failure only logs and forgets
+## P2: Reliable send failure handling
 
 - File: `SR2MP/Shared/Managers/ReliabilityManager.cs`
 - Problem: when a reliable packet exhausts retries, it is removed from pending packets and only logs a warning.
 - Impact: state-changing reliable packets can silently desync sender and receiver.
 - Possible direction: surface a failure event to client/server code. For critical packets, disconnect or trigger a resync instead of continuing silently.
+- Local status: fixed with reliable failure callbacks. World-state failures request host repair snapshots before disconnecting; critical join/initial-sync failures still require a clean reconnect.
 
 ## P2: Protocol/version handshake
 

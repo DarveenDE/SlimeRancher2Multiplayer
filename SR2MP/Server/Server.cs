@@ -18,6 +18,8 @@ public sealed class Server
 
     private Timer? timeoutTimer;
     private int closeInProgress;
+    private readonly Dictionary<string, float> reliableFailureRepairTimes = new();
+    private const float ReliableFailureRepairCooldownSeconds = 5f;
 
     // Just here so that the port is viewable.
     public int Port { get; private set; }
@@ -33,6 +35,7 @@ public sealed class Server
         packetManager = new PacketManager(networkManager, clientManager);
 
         networkManager.OnDataReceived += OnDataReceived;
+        networkManager.OnReliablePacketFailed += OnReliablePacketFailed;
         clientManager.OnClientRemoved += OnClientRemoved;
     }
 
@@ -107,6 +110,8 @@ public sealed class Server
 
     private void OnClientRemoved(ClientInfo client)
     {
+        reliableFailureRepairTimes.Remove(client.GetClientInfo());
+
         var leavePacket = new PlayerLeavePacket
         {
             Type = PacketType.BroadcastPlayerLeave,
@@ -116,6 +121,48 @@ public sealed class Server
         SendToAll(leavePacket);
 
         SrLogger.LogMessage($"Player left broadcast sent for: {client.PlayerId}", SrLogTarget.Both);
+    }
+
+    private void OnReliablePacketFailed(ReliablePacketFailure failure)
+    {
+        MainThreadDispatcher.Enqueue(() => HandleReliablePacketFailed(failure));
+    }
+
+    private void HandleReliablePacketFailed(ReliablePacketFailure failure)
+    {
+        if (!networkManager.IsRunning)
+            return;
+
+        if (!clientManager.TryGetClient(failure.Destination, out var client) || client == null)
+            return;
+
+        var packetType = (PacketType)failure.PacketType;
+        if (!client.InitialSyncComplete || IsInitialSyncPacket(packetType))
+        {
+            SrLogger.LogWarning(
+                $"Reliable initial-sync packet {packetType} failed for {client.PlayerId}; removing client so they can retry a clean join.",
+                SrLogTarget.Both);
+            clientManager.RemoveClient(client.EndPoint);
+            return;
+        }
+
+        var clientInfo = client.GetClientInfo();
+        if (reliableFailureRepairTimes.TryGetValue(clientInfo, out var lastRepairAt)
+            && Time.realtimeSinceStartup - lastRepairAt < ReliableFailureRepairCooldownSeconds)
+        {
+            SrLogger.LogWarning(
+                $"Reliable packet {packetType} failed for {client.PlayerId}; repair snapshot already requested recently.",
+                SrLogTarget.Both);
+            return;
+        }
+
+        reliableFailureRepairTimes[clientInfo] = Time.realtimeSinceStartup;
+        if (!WorldStateRepairManager.RequestRepairSnapshot($"reliable packet {packetType} failed for {client.PlayerId}"))
+        {
+            SrLogger.LogWarning(
+                $"Reliable packet {packetType} failed for {client.PlayerId}, but repair snapshot is not available right now.",
+                SrLogTarget.Both);
+        }
     }
 
     private void CheckTimeouts(object? state)
@@ -303,6 +350,22 @@ public sealed class Server
             return true;
 
         return client.QueueUntilInitialSyncComplete(data, reliability);
+    }
+
+    private static bool IsInitialSyncPacket(PacketType packetType)
+    {
+        return packetType is PacketType.ConnectAck
+            or PacketType.InitialActors
+            or PacketType.InitialPlots
+            or PacketType.InitialPlayerUpgrades
+            or PacketType.InitialPediaEntries
+            or PacketType.InitialGordos
+            or PacketType.InitialSwitches
+            or PacketType.InitialMapEntries
+            or PacketType.InitialAccessDoors
+            or PacketType.InitialWeather
+            or PacketType.InitialPuzzleStates
+            or PacketType.InitialSyncComplete;
     }
 
     private static string DescribeStartFailure(Exception ex)

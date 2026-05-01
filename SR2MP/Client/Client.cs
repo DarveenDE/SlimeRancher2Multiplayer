@@ -25,6 +25,7 @@ public sealed class Client
     private Timer? connectionTimeoutTimer;
     private const int ConnectionTimeoutSeconds = 30;
     private long lastServerHeartbeatTicks;
+    private long lastReliableFailureResyncRequestTicks;
 
     private bool shownConnectionError;
     private int disconnectInProgress;
@@ -74,6 +75,7 @@ public sealed class Client
             shownConnectionError = false;
             connectionAcknowledged = false;
             RecordServerHeartbeat();
+            System.Threading.Interlocked.Exchange(ref lastReliableFailureResyncRequestTicks, 0);
             LastConnectionError = string.Empty;
 
             IPAddress parsedIp = IPAddress.Parse(serverIp);
@@ -107,6 +109,7 @@ public sealed class Client
 
             // Initialize reliability manager
             reliabilityManager = new ReliabilityManager(SendRaw);
+            reliabilityManager.PacketFailed += HandleReliablePacketFailed;
             reliabilityManager.Start();
 
             packetManager.RegisterHandlers();
@@ -148,6 +151,7 @@ public sealed class Client
             SrLogger.LogError($"Error connecting to the Server: {ex}", SrLogTarget.Both);
             isConnected = false;
             connectionAcknowledged = false;
+            System.Threading.Interlocked.Exchange(ref lastReliableFailureResyncRequestTicks, 0);
             connectionTimeoutTimer?.Dispose();
             connectionTimeoutTimer = null;
             reliabilityManager?.Stop();
@@ -484,6 +488,62 @@ public sealed class Client
     {
         var lastHeartbeat = new DateTime(System.Threading.Interlocked.Read(ref lastServerHeartbeatTicks), DateTimeKind.Utc);
         return DateTime.UtcNow - lastHeartbeat > TimeSpan.FromSeconds(HeartbeatSettings.TimeoutSeconds);
+    }
+
+    private void HandleReliablePacketFailed(ReliablePacketFailure failure)
+    {
+        if (!isConnected)
+            return;
+
+        var packetType = (PacketType)failure.PacketType;
+        if (IsCriticalJoinPacket(packetType))
+        {
+            FailConnection($"A critical join packet ({packetType}) could not be delivered. Rejoin the hosted world to retry a clean sync.");
+            return;
+        }
+
+        RequestHostResync(packetType);
+    }
+
+    private void RequestHostResync(PacketType failedPacketType)
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var lastRequest = System.Threading.Interlocked.Read(ref lastReliableFailureResyncRequestTicks);
+        if (lastRequest != 0 && now - lastRequest < TimeSpan.FromSeconds(5).Ticks)
+        {
+            SrLogger.LogWarning(
+                $"Reliable packet {failedPacketType} failed; resync request already sent recently.",
+                SrLogTarget.Both);
+            return;
+        }
+
+        System.Threading.Interlocked.Exchange(ref lastReliableFailureResyncRequestTicks, now);
+        SrLogger.LogWarning(
+            $"Reliable packet {failedPacketType} failed; requesting host repair snapshot before disconnecting.",
+            SrLogTarget.Both);
+        SendPacket(new EmptyPacket
+        {
+            Type = PacketType.ResyncRequest,
+            Reliability = PacketReliability.Unreliable,
+        });
+    }
+
+    private void FailConnection(string message)
+    {
+        shownConnectionError = true;
+        MultiplayerUI.Instance?.RegisterSystemMessage(
+            message,
+            $"SYSTEM_RELIABLE_FAILURE_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+            MultiplayerUI.SystemMessageClose);
+        NotifyConnectionFailed(message);
+        Disconnect(message, true);
+    }
+
+    private static bool IsCriticalJoinPacket(PacketType packetType)
+    {
+        return packetType is PacketType.Connect
+            or PacketType.InitialSyncCompleteAck
+            or PacketType.PlayerJoin;
     }
 
     internal void RejectConnection(string message)

@@ -13,7 +13,9 @@ namespace SR2MP.Shared.Managers;
 public static class WorldStateRepairManager
 {
     private const float RepairIntervalSeconds = 15f;
+    private const float ManualRepairCooldownSeconds = 5f;
     private static bool repairLoopRunning;
+    private static float nextManualRepairAt;
 
     public static void Start()
     {
@@ -31,7 +33,25 @@ public static class WorldStateRepairManager
             return;
 
         repairLoopRunning = false;
+        nextManualRepairAt = 0f;
         SrLogger.LogDebug("World state repair snapshots disabled.", SrLogTarget.Main);
+    }
+
+    public static bool RequestRepairSnapshot(string reason)
+    {
+        if (!CanSendRepairSnapshot())
+            return false;
+
+        if (Time.realtimeSinceStartup < nextManualRepairAt)
+        {
+            SrLogger.LogDebug($"Repair snapshot request skipped during cooldown: {reason}", SrLogTarget.Main);
+            return true;
+        }
+
+        nextManualRepairAt = Time.realtimeSinceStartup + ManualRepairCooldownSeconds;
+        SrLogger.LogWarning($"Sending repair snapshot due to {reason}.", SrLogTarget.Both);
+        SendRepairSnapshot();
+        return true;
     }
 
     private static IEnumerator RepairLoop()

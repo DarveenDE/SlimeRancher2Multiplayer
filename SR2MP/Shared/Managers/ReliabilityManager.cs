@@ -11,6 +11,17 @@ public enum OrderedPacketStatus
     OutOfOrder
 }
 
+public sealed class ReliablePacketFailure
+{
+    public IPEndPoint Destination { get; init; } = null!;
+    public ushort PacketId { get; init; }
+    public byte PacketType { get; init; }
+    public PacketReliability Reliability { get; init; }
+    public int SendCount { get; init; }
+    public TimeSpan Age { get; init; }
+    public ushort SequenceNumber { get; init; }
+}
+
 public sealed class ReliabilityManager
 {
     private sealed class PendingPacket
@@ -36,6 +47,8 @@ public sealed class ReliabilityManager
 
     private Thread? resendThread;
     private volatile bool isRunning;
+
+    public event Action<ReliablePacketFailure>? PacketFailed;
 
     private static readonly TimeSpan ResendInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan MaxRetryTime = TimeSpan.FromSeconds(10);
@@ -197,6 +210,7 @@ public sealed class ReliabilityManager
                         SrLogger.LogWarning(
                             $"Packet {packet.PacketId} (type={packet.PacketType}) failed after {packet.SendCount} attempts",
                             SrLogTarget.Both);
+                        NotifyPacketFailed(packet, now - packet.FirstSendTime);
                         _toRemove.Add(kvp.Key);
                         continue;
                     }
@@ -255,6 +269,27 @@ public sealed class ReliabilityManager
 
     private static ushort GetNextExpectedSequence(ushort current)
         => current == ushort.MaxValue ? (ushort)1 : (ushort)(current + 1);
+
+    private void NotifyPacketFailed(PendingPacket packet, TimeSpan age)
+    {
+        try
+        {
+            PacketFailed?.Invoke(new ReliablePacketFailure
+            {
+                Destination = packet.Destination,
+                PacketId = packet.PacketId,
+                PacketType = packet.PacketType,
+                Reliability = packet.Reliability,
+                SendCount = packet.SendCount,
+                Age = age,
+                SequenceNumber = packet.SequenceNumber,
+            });
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogError($"Reliable packet failure callback failed: {ex}", SrLogTarget.Both);
+        }
+    }
 
     public int GetPendingPacketCount() => pendingPackets.Count;
 
