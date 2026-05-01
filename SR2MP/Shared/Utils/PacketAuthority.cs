@@ -11,49 +11,150 @@ public enum ClientPacketRule
     Unknown
 }
 
+public enum PacketDirection
+{
+    Reserved,
+    Internal,
+    ClientToServer,
+    ServerToClient,
+    ServerToAllClients,
+    ServerToOtherClients,
+    Bidirectional
+}
+
+public enum PacketReliabilityProfile
+{
+    None,
+    Unreliable,
+    Reliable,
+    ReliableOrdered,
+    Dynamic
+}
+
+public enum HostPacketAction
+{
+    None,
+    RejectAtIngress,
+    InternalTransport,
+    ValidateAndReply,
+    ValidateAndApply,
+    ApplyAndBroadcast,
+    ValidateApplyAndBroadcast,
+    ConvertToHostBroadcast,
+    IgnoreClientState
+}
+
+public enum PacketStateCoverage
+{
+    NotApplicable,
+    Covered,
+    Partial,
+    NotCovered,
+    PolicyPending
+}
+
+public sealed record PacketAuthorityDefinition(
+    PacketType Type,
+    ClientPacketRule ClientToServerRule,
+    PacketDirection Direction,
+    PacketReliabilityProfile Reliability,
+    HostPacketAction HostAction,
+    PacketStateCoverage InitialSync,
+    PacketStateCoverage RepairSnapshot);
+
 public static class PacketAuthority
 {
-    private static readonly HashSet<PacketType> ClientToServerPackets = new()
+    private static readonly IReadOnlyDictionary<PacketType, PacketAuthorityDefinition> Definitions =
+        new[]
+        {
+            Define(PacketType.None, ClientPacketRule.Reserved, PacketDirection.Reserved, PacketReliabilityProfile.None, HostPacketAction.RejectAtIngress, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.Connect, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateAndReply, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.ConnectAck, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.None, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.Close, ClientPacketRule.ServerOnly, PacketDirection.ServerToAllClients, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.PlayerJoin, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Reliable, HostPacketAction.ConvertToHostBroadcast, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.BroadcastPlayerJoin, ClientPacketRule.ServerOnly, PacketDirection.ServerToOtherClients, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.PlayerLeave, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.ConvertToHostBroadcast, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.BroadcastPlayerLeave, ClientPacketRule.ServerOnly, PacketDirection.ServerToOtherClients, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.None, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.PlayerUpdate, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Unreliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.ChatMessage, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.ConvertToHostBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.BroadcastChatMessage, ClientPacketRule.ServerOnly, PacketDirection.ServerToAllClients, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.None, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.Heartbeat, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Unreliable, HostPacketAction.ValidateAndReply, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.HeartbeatAck, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Unreliable, HostPacketAction.None, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.WorldTime, ClientPacketRule.ServerOnly, PacketDirection.ServerToAllClients, PacketReliabilityProfile.Unreliable, HostPacketAction.None, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.FastForward, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Unreliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.BroadcastFastForward, ClientPacketRule.ServerOnly, PacketDirection.ServerToAllClients, PacketReliabilityProfile.Unreliable, HostPacketAction.None, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.PlayerFX, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Unreliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.MovementSound, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Unreliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.CurrencyAdjust, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.ActorDestroy, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.ActorSpawn, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.ActorUpdate, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Unreliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.ActorTransfer, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.InitialActors, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.LandPlotUpdate, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.InitialPlots, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotApplicable),
+            Define(PacketType.WorldFX, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Unreliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.InitialPlayerUpgrades, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.PlayerUpgrade, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.InitialPediaEntries, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.PediaUnlock, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.MarketPriceChange, ClientPacketRule.ServerOnly, PacketDirection.ServerToAllClients, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.GordoFeed, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.GordoBurst, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.InitialGordos, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotApplicable),
+            Define(PacketType.InitialSwitches, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotApplicable),
+            Define(PacketType.SwitchActivate, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.ActorUnload, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.GeyserTrigger, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.MapUnlock, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.InitialMapEntries, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.GardenPlant, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.AccessDoor, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.InitialAccessDoors, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotApplicable),
+            Define(PacketType.ResourceAttach, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Partial, PacketStateCoverage.Partial),
+            Define(PacketType.WeatherUpdate, ClientPacketRule.ServerOnly, PacketDirection.ServerToAllClients, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotCovered),
+            Define(PacketType.InitialWeather, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotApplicable),
+            Define(PacketType.LightningStrike, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Unreliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.PuzzleSlotState, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.PlortDepositorState, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.InitialPuzzleStates, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.Covered, PacketStateCoverage.NotApplicable),
+            Define(PacketType.InitialSyncComplete, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.InitialSyncCompleteAck, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateAndApply, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.RefineryItemCounts, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.LandPlotAmmoUpdate, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.LandPlotFeederState, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.GardenGrowthState, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Dynamic, HostPacketAction.IgnoreClientState, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.CommStationPlayed, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.ResourceNodeState, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
+            Define(PacketType.ConnectRejected, ClientPacketRule.ServerOnly, PacketDirection.ServerToClient, PacketReliabilityProfile.Reliable, HostPacketAction.None, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.ResyncRequest, ClientPacketRule.Allowed, PacketDirection.ClientToServer, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateAndReply, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.ReservedAck, ClientPacketRule.InternalOnly, PacketDirection.Internal, PacketReliabilityProfile.Unreliable, HostPacketAction.InternalTransport, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+            Define(PacketType.ReservedDoNotUse, ClientPacketRule.Reserved, PacketDirection.Reserved, PacketReliabilityProfile.None, HostPacketAction.RejectAtIngress, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
+        }.ToDictionary(definition => definition.Type);
+
+    private static PacketAuthorityDefinition Define(
+        PacketType type,
+        ClientPacketRule clientToServerRule,
+        PacketDirection direction,
+        PacketReliabilityProfile reliability,
+        HostPacketAction hostAction,
+        PacketStateCoverage initialSync,
+        PacketStateCoverage repairSnapshot)
+        => new(type, clientToServerRule, direction, reliability, hostAction, initialSync, repairSnapshot);
+
+    public static IEnumerable<PacketAuthorityDefinition> GetDefinitions()
+        => Definitions.Values;
+
+    public static bool TryGetDefinition(PacketType packetType, out PacketAuthorityDefinition definition)
+        => Definitions.TryGetValue(packetType, out definition!);
+
+    public static PacketAuthorityDefinition GetDefinition(PacketType packetType)
     {
-        PacketType.Connect,
-        PacketType.PlayerJoin,
-        PacketType.PlayerLeave,
-        PacketType.PlayerUpdate,
-        PacketType.ChatMessage,
-        PacketType.Heartbeat,
-        PacketType.FastForward,
-        PacketType.PlayerFX,
-        PacketType.MovementSound,
-        PacketType.CurrencyAdjust,
-        PacketType.ActorDestroy,
-        PacketType.ActorSpawn,
-        PacketType.ActorUpdate,
-        PacketType.ActorTransfer,
-        PacketType.ActorUnload,
-        PacketType.LandPlotUpdate,
-        PacketType.WorldFX,
-        PacketType.PlayerUpgrade,
-        PacketType.PediaUnlock,
-        PacketType.GordoFeed,
-        PacketType.GordoBurst,
-        PacketType.SwitchActivate,
-        PacketType.GeyserTrigger,
-        PacketType.MapUnlock,
-        PacketType.GardenPlant,
-        PacketType.AccessDoor,
-        PacketType.ResourceAttach,
-        PacketType.LightningStrike,
-        PacketType.PuzzleSlotState,
-        PacketType.PlortDepositorState,
-        PacketType.InitialSyncCompleteAck,
-        PacketType.RefineryItemCounts,
-        PacketType.LandPlotAmmoUpdate,
-        PacketType.LandPlotFeederState,
-        PacketType.GardenGrowthState,
-        PacketType.CommStationPlayed,
-        PacketType.ResourceNodeState,
-        PacketType.ResyncRequest,
-    };
+        if (Definitions.TryGetValue(packetType, out var definition))
+            return definition;
+
+        throw new ArgumentOutOfRangeException(nameof(packetType), packetType, "Packet type has no authority definition.");
+    }
 
     public static ClientPacketRule GetClientToServerRule(byte packetType)
     {
@@ -61,16 +162,9 @@ public static class PacketAuthority
             return ClientPacketRule.Unknown;
 
         var type = (PacketType)packetType;
-        if (type == PacketType.ReservedAck)
-            return ClientPacketRule.InternalOnly;
-
-        if (type is PacketType.ReservedDoNotUse or PacketType.None)
-            return ClientPacketRule.Reserved;
-
-        if (ClientToServerPackets.Contains(type))
-            return ClientPacketRule.Allowed;
-
-        return ClientPacketRule.ServerOnly;
+        return Definitions.TryGetValue(type, out var definition)
+            ? definition.ClientToServerRule
+            : ClientPacketRule.Unknown;
     }
 
     public static bool CanClientSendToServer(byte packetType)

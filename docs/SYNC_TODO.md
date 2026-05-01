@@ -23,6 +23,7 @@ Status 2026-05-01:
 - Hardened pedia unlocks and player upgrades so duplicate/maxed/unknown requests are not blindly applied or rebroadcast.
 - Hardened client-origin actor spawn so the host only rebroadcasts successfully applied spawns from the sender's assigned actor-id range.
 - Added actor ownership tracking in `NetworkActorManager.ActorOwners` and basic owner validation for actor update, destroy, transfer, and unload requests.
+- Expanded `Shared/Utils/PacketAuthority.cs` from a client-allowed set into a packet metadata matrix with direction, reliability profile, host action, initial sync coverage, and repair snapshot coverage.
 - This is still an ingress and basic business-rule hardening step. Deeper per-action validation remains open below.
 
 ### Tasks
@@ -32,12 +33,13 @@ Status 2026-05-01:
   - Whether clients may send it to the host
   - Current implementation: `PacketAuthority.GetClientToServerRule(...)`
 
-- [ ] Expand the authority matrix with full metadata.
+- [x] Expand the authority matrix with full metadata.
   - Direction
   - Reliability
   - Whether the host applies the packet directly, validates it, ignores it, or converts it into a host-generated packet
   - Whether the state is covered by initial sync
   - Whether the state is covered by repair snapshots
+  - Current implementation: `PacketAuthorityDefinition` entries in `Shared/Utils/PacketAuthority.cs`
 
 - [x] Harden client-triggered pedia unlocks against empty, unknown, duplicate, and host-rejected requests.
   - Current code path: `Patches/Pedia/OnEntryUnlocked.cs`, `Server/Handlers/PediaUnlockHandler.cs`
