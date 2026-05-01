@@ -12,6 +12,30 @@ This document is the working basis for the next multiplayer-sync pass. It is bas
 
 Important clarification: **player inventories should not be globally equalized**. Each player should keep their own inventory. The open question is whether the host merely accepts the resulting world changes from clients, or whether the host also tracks/validates inventory-backed transactions.
 
+## Next 4 Work Items
+
+Current order for the next implementation pass:
+
+1. Harden shared currency changes. **Status: done 2026-05-01.**
+   - Decide and document currency as shared host-authoritative save state for the current architecture.
+   - Stop accepting arbitrary client absolute `NewAmount` as truth.
+   - Require client deltas to match the host's current currency baseline before the host applies and rebroadcasts them.
+
+2. Finish player-upgrade cost/requirement authority. **Status: scoped 2026-05-01; implementation depends on a correlated purchase transaction.**
+   - Use the currency decision above as the baseline.
+   - Keep live upgrade sync as absolute host target levels.
+   - Add the best available host-side validation for upgrade costs/requirements, or document why full validation must wait for inventory-backed transaction authority.
+
+3. Add repair snapshots for shared progression/economy. **Status: done 2026-05-01 for currency, pedia, and player upgrades.**
+   - Currency repair snapshot.
+   - Pedia repair snapshot.
+   - Player upgrade repair snapshot.
+   - Include these categories in `WorldStateRepairManager` logging.
+
+4. Add explicit rejection logging for the remaining invalid business mutations. **Status: broad first pass done 2026-05-01.**
+   - Prioritize currency, land plot, refinery/ammo/feeder, world switches/doors, gordos, resource nodes, puzzle slots, and plort depositors.
+   - Include player id, endpoint, packet type, reason, and relevant ids where available.
+
 ## Priority 1: Make Host Authority Explicit
 
 Goal: client packets should be treated as requests for shared-state changes, not as unconditional truth.
@@ -26,6 +50,9 @@ Status 2026-05-01:
 - Expanded `Shared/Utils/PacketAuthority.cs` from a client-allowed set into a packet metadata matrix with direction, reliability profile, host action, initial sync coverage, and repair snapshot coverage.
 - Decided long-term pedia policy: pedia unlocks remain shared world progression for this co-op model. Clients may request a pedia unlock, but the host validates the entry and only rebroadcasts host-accepted new unlocks.
 - Decided current player-upgrade policy: upgrades remain shared save/player progression in the current architecture. `PlayerUpgradePacket` now carries the host-accepted target level so receivers set absolute host state instead of blindly incrementing.
+- Decided current currency policy: currency remains shared host-authoritative save state. Client currency packets now include a delta and expected previous amount; the host rejects stale/malformed updates instead of accepting arbitrary absolute `NewAmount`.
+- Added repair snapshot coverage for shared currency, pedia entries, and player upgrade levels.
+- Added rejection logging with player/endpoint context for currency, land plot, garden plant, access door, world switch, gordo feed/burst, puzzle slot, plort depositor, refinery, land plot ammo, and feeder updates.
 - This is still an ingress and basic business-rule hardening step. Deeper per-action validation remains open below.
 
 ### Tasks
@@ -67,12 +94,15 @@ Status 2026-05-01:
   - [x] Change live packets from "increment this upgrade" to "host says this upgrade is now level N".
   - Implemented: `PlayerUpgradePacket.TargetLevel`; clients send their requested target after a successful local purchase, the host accepts only the next valid level, and receivers set the absolute host level.
   - [ ] Validate requirements/costs before accepting, or move upgrade purchase authority entirely to the host.
-  - Remaining dependency: this should be decided together with currency/inventory-backed transaction authority.
+  - Status 2026-05-01: direct cost validation is not safe yet because currency spend and upgrade-level request are separate reliable packets and can arrive in either order. Full validation should be implemented as a single host-authoritative purchase transaction or with a correlated pending-spend ledger.
+  - Remaining dependency: inventory-backed transaction authority.
 
-- [ ] Harden currency changes.
+- [x] Harden currency changes.
   - Current code path: `Patches/Economy/CurrencyPatch.cs`, `Server/Handlers/CurrencyHandler.cs`
-  - Decide whether currency is global/shared or per-player.
-  - If shared: host should compute accepted deltas from validated actions, not accept arbitrary client `NewAmount`.
+  - Decision 2026-05-01: shared/global in the current architecture because initial sync already applies host currency to joining clients and upgrade/fabricator economy is shared save state.
+  - Implemented: client packets now include `PreviousAmount` and `DeltaAmount`; the host applies the delta only when `PreviousAmount` matches the current host amount and the resulting amount is valid.
+  - Implemented: stale, malformed, legacy-without-baseline, negative-result, and invalid-currency updates are rejected and the sender receives the host amount for correction.
+  - Remaining follow-up: replace trusted client deltas with validated host-derived economy transactions where possible.
   - If per-player: do not broadcast every player's currency amount to everyone.
 
 - [x] Harden client-triggered actor spawn basics.
@@ -95,7 +125,9 @@ Status 2026-05-01:
 - [ ] Add explicit rejection logging for invalid client mutations.
   - Status 2026-05-01: invalid packet types are now rejected and logged at server ingress.
   - Status 2026-05-01: pedia unlock, player upgrade, actor spawn, actor update, actor destroy, actor transfer, and actor unload rejections now include endpoint/player context.
-  - Remaining: other invalid business mutations still need per-handler validation logs.
+  - Status 2026-05-01: currency rejections now include endpoint/player context plus reason for invalid type, missing baseline, stale baseline, malformed delta, or negative result.
+  - Status 2026-05-01: land plot, garden plant, access door, world switch, gordo feed/burst, puzzle slot, plort depositor, refinery, land plot ammo, and feeder apply failures now log endpoint/player context and relevant ids.
+  - Remaining: resource node handling still applies snapshot batches without per-entry rejection results, so deeper resource-node rejection reasons require changes in `ResourceNodeSyncManager.Apply(...)`.
   - Include player id, endpoint, packet type, reason, and relevant ids.
   - Keep logs concise enough for two-player QA sessions.
 
@@ -113,19 +145,22 @@ Current repair coverage is already broad in `Shared/Managers/WorldStateRepairMan
 
 ### Remaining Coverage Gaps
 
-- [ ] Currency repair snapshot, if currency is shared/global.
+- [x] Currency repair snapshot.
   - Include both regular and rainbow currency.
   - Consider sending as absolute host amount, like current `CurrencyPacket`.
+  - Implemented: repair sends host currency amounts as absolute `CurrencyPacket`s with zero delta/baseline.
 
-- [ ] Pedia repair snapshot.
+- [x] Pedia repair snapshot.
   - Initial sync already sends pedia entries.
   - Periodic repair currently does not.
   - Policy 2026-05-01: pedia is shared/global, so this should be implemented.
+  - Implemented: repair reuses `InitialPediaPacket` with host unlocked pedia entries.
 
-- [ ] Player upgrade repair snapshot.
+- [x] Player upgrade repair snapshot.
   - Initial sync already sends upgrade levels.
   - Periodic repair currently does not.
   - Policy 2026-05-01: upgrades are shared/global in the current architecture, so this should be implemented after live authority hardening.
+  - Implemented: repair reuses `InitialUpgradesPacket` with absolute host upgrade levels.
 
 - [ ] Market price repair snapshot.
   - Initial sync sends prices from `ConnectHandler`.

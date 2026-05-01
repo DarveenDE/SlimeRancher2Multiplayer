@@ -1,6 +1,9 @@
 using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
+using Il2CppMonomiPark.SlimeRancher.Economy;
+using Il2CppMonomiPark.SlimeRancher.Pedia;
 using MelonLoader;
+using SR2MP.Packets.Economy;
 using SR2MP.Packets.Gordo;
 using SR2MP.Packets.Landplot;
 using SR2MP.Packets.Loading;
@@ -95,10 +98,13 @@ public static class WorldStateRepairManager
         PerformanceDiagnostics.RecordWorldRepairSnapshot();
         var stats = new RepairSnapshotStats();
 
+        TrySend("currency", () => SendCurrencySnapshot(stats));
         TrySend("refinery", () => SendRefinerySnapshot(stats));
         if (!TryGetGameModel(out var gameModel))
             return;
 
+        TrySend("pedia", () => SendPediaSnapshot(stats));
+        TrySend("player upgrades", () => SendPlayerUpgradeSnapshot(stats));
         TrySend("land plots", () => SendLandPlotSnapshots(gameModel, stats));
         TrySend("switches", () => SendSwitchSnapshots(gameModel, stats));
         TrySend("access doors", () => SendAccessDoorSnapshots(gameModel, stats));
@@ -110,8 +116,69 @@ public static class WorldStateRepairManager
         TrySend("plort depositors", () => SendPlortDepositorSnapshots(gameModel, stats));
 
         SrLogger.LogDebug(
-            $"Repair snapshot sent: refinery={stats.RefineryItems}, plotTypes={stats.LandPlotTypes}, plotUpgrades={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, gardens={stats.GardenStates}, gardenGrowth={stats.GardenGrowthStates}, gardenProduce={stats.GardenProduceStates}, gardenAttach={stats.GardenResourceAttachStates}, feeders={stats.FeederStates}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, comm={stats.CommStationEntries}, resourceNodes={stats.ResourceNodes}, gordos={stats.Gordos}, slots={stats.PuzzleSlots}, depositors={stats.PlortDepositors}.",
+            $"Repair snapshot sent: currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, playerUpgrades={stats.PlayerUpgrades}, refinery={stats.RefineryItems}, plotTypes={stats.LandPlotTypes}, plotUpgrades={stats.LandPlotUpgrades}, ammo={stats.AmmoSets}, gardens={stats.GardenStates}, gardenGrowth={stats.GardenGrowthStates}, gardenProduce={stats.GardenProduceStates}, gardenAttach={stats.GardenResourceAttachStates}, feeders={stats.FeederStates}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, comm={stats.CommStationEntries}, resourceNodes={stats.ResourceNodes}, gordos={stats.Gordos}, slots={stats.PuzzleSlots}, depositors={stats.PlortDepositors}.",
             SrLogTarget.Main);
+    }
+
+    private static void SendCurrencySnapshot(RepairSnapshotStats stats)
+    {
+        var currencies = GameContext.Instance.LookupDirector._currencyList._currencies;
+        for (var i = 0; i < currencies.Count; i++)
+        {
+            var currency = currencies[i];
+            if (!currency)
+                continue;
+
+            var currencyDefinition = currency.Cast<ICurrency>();
+            var amount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+            Main.Server.SendToAll(new CurrencyPacket
+            {
+                CurrencyType = (byte)(i + 1),
+                NewAmount = amount,
+                PreviousAmount = amount,
+                DeltaAmount = 0,
+                ShowUINotification = false,
+            });
+            stats.CurrencyValues++;
+        }
+    }
+
+    private static void SendPediaSnapshot(RepairSnapshotStats stats)
+    {
+        var unlocked = SceneContext.Instance.PediaDirector._pediaModel.unlocked;
+        var unlockedArray = Il2CppSystem.Linq.Enumerable
+            .ToArray(unlocked.Cast<CppCollections.IEnumerable<PediaEntry>>());
+
+        var entries = unlockedArray
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.PersistenceId))
+            .Select(entry => entry.PersistenceId)
+            .ToList();
+
+        Main.Server.SendToAll(new InitialPediaPacket
+        {
+            Entries = entries,
+        });
+        stats.PediaEntries = entries.Count;
+    }
+
+    private static void SendPlayerUpgradeSnapshot(RepairSnapshotStats stats)
+    {
+        var upgrades = new Dictionary<byte, sbyte>();
+        var model = SceneContext.Instance.PlayerState._model.upgradeModel;
+
+        foreach (var upgrade in GameContext.Instance.LookupDirector._upgradeDefinitions.items)
+        {
+            if (upgrade == null)
+                continue;
+
+            upgrades[(byte)upgrade._uniqueId] = (sbyte)model.GetUpgradeLevel(upgrade);
+        }
+
+        Main.Server.SendToAll(new InitialUpgradesPacket
+        {
+            Upgrades = upgrades,
+        });
+        stats.PlayerUpgrades = upgrades.Count;
     }
 
     private static void SendRefinerySnapshot(RepairSnapshotStats stats)
@@ -387,6 +454,9 @@ public static class WorldStateRepairManager
 
     private sealed class RepairSnapshotStats
     {
+        public int CurrencyValues { get; set; }
+        public int PediaEntries { get; set; }
+        public int PlayerUpgrades { get; set; }
         public int RefineryItems { get; set; }
         public int LandPlotTypes { get; set; }
         public int LandPlotUpgrades { get; set; }

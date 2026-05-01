@@ -11,6 +11,7 @@ public static class CurrencyPatch
     public static void AddCurrency(
         PlayerState __instance,
         ICurrency currencyDefinition,
+        int amount,
         bool showUiNotification)
     {
         if (handlingPacket) return;
@@ -24,6 +25,8 @@ public static class CurrencyPatch
         var packet = new CurrencyPacket
         {
             NewAmount = __instance._model.GetCurrencyAmount(currencyDefinition),
+            PreviousAmount = __instance._model.GetCurrencyAmount(currencyDefinition) - amount,
+            DeltaAmount = amount,
             CurrencyType = (byte)currency,
             ShowUINotification = showUiNotification,
         };
@@ -34,15 +37,19 @@ public static class CurrencyPatch
     [HarmonyPostfix, HarmonyPatch(nameof(PlayerState.SpendCurrency))]
     public static void SpendCurrency(
         PlayerState __instance,
-        ICurrency currency)
+        ICurrency currency,
+        int amount)
     {
         if (handlingPacket) return;
 
         var currencyId = currency.PersistenceId;
+        var newAmount = __instance._model.GetCurrencyAmount(currency);
 
         var packet = new CurrencyPacket
         {
-            NewAmount = __instance._model.GetCurrencyAmount(currency),
+            NewAmount = newAmount,
+            PreviousAmount = newAmount + amount,
+            DeltaAmount = -amount,
             CurrencyType = (byte)currencyId,
             ShowUINotification = true,
         };

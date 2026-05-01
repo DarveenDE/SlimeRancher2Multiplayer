@@ -18,11 +18,21 @@ public sealed class LandPlotFeederHandler : BasePacketHandler<LandPlotFeederPack
         try
         {
             if (!LandPlotFeederSyncManager.ApplyState(packet.PlotId, packet.State, "server feeder state"))
+            {
+                SrLogger.LogWarning(
+                    $"Rejected land plot feeder update from {DescribeClient(senderEndPoint)}: plot='{packet.PlotId}', speed={packet.State.Speed}, next={packet.State.NextFeedingTime}, remaining={packet.State.RemainingFeedOperations}.",
+                    SrLogTarget.Both);
                 return;
+            }
         }
         finally { handlingPacket = false; }
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
+
+    private string DescribeClient(IPEndPoint senderEndPoint)
+        => clientManager.TryGetClient(senderEndPoint, out var client) && client != null
+            ? $"{client.PlayerId} ({senderEndPoint})"
+            : senderEndPoint.ToString();
 }

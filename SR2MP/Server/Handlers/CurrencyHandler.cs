@@ -14,30 +14,99 @@ public sealed class CurrencyHandler : BasePacketHandler<CurrencyPacket>
 
     protected override void Handle(CurrencyPacket packet, IPEndPoint clientEp)
     {
-        var currencies = GameContext.Instance.LookupDirector._currencyList._currencies;
-        var currencyIndex = packet.CurrencyType - 1;
-        if (currencyIndex < 0 || currencyIndex >= currencies.Count)
+        if (!TryGetCurrency(packet.CurrencyType, out var currencyDefinition))
         {
-            SrLogger.LogWarning($"Ignoring currency update with invalid currency type {packet.CurrencyType}.", SrLogTarget.Both);
+            SrLogger.LogWarning(
+                $"Ignoring currency update with invalid currency type {packet.CurrencyType} from {DescribeClient(clientEp)}.",
+                SrLogTarget.Both);
             return;
         }
 
-        var currency = currencies[currencyIndex];
-        if (!currency)
+        var hostAmount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+        if (!packet.HasBaseline)
+        {
+            SrLogger.LogWarning(
+                $"Ignoring legacy currency update for type {packet.CurrencyType} from {DescribeClient(clientEp)}; packet does not include a baseline.",
+                SrLogTarget.Both);
+            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
             return;
+        }
 
-        var currencyDefinition = currency.Cast<ICurrency>();
+        if (packet.PreviousAmount != hostAmount)
+        {
+            SrLogger.LogWarning(
+                $"Ignoring stale currency update for type {packet.CurrencyType} from {DescribeClient(clientEp)}; host={hostAmount}, clientExpected={packet.PreviousAmount}, requestedNew={packet.NewAmount}.",
+                SrLogTarget.Both);
+            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
+            return;
+        }
 
-        var difference = packet.NewAmount - SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+        var expectedNewAmount = hostAmount + packet.DeltaAmount;
+        if (expectedNewAmount != packet.NewAmount)
+        {
+            SrLogger.LogWarning(
+                $"Ignoring malformed currency update for type {packet.CurrencyType} from {DescribeClient(clientEp)}; previous {packet.PreviousAmount} + delta {packet.DeltaAmount} != requested {packet.NewAmount}.",
+                SrLogTarget.Both);
+            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
+            return;
+        }
+
+        if (expectedNewAmount < 0)
+        {
+            SrLogger.LogWarning(
+                $"Ignoring currency spend for type {packet.CurrencyType} from {DescribeClient(clientEp)}; requested amount would go negative ({expectedNewAmount}).",
+                SrLogTarget.Both);
+            SendHostAmount(packet.CurrencyType, hostAmount, packet.ShowUINotification, clientEp);
+            return;
+        }
 
         RunWithHandlingPacket(() =>
         {
-            if (difference < 0)
-                SceneContext.Instance.PlayerState.SpendCurrency(currencyDefinition, -difference);
+            if (packet.DeltaAmount < 0)
+                SceneContext.Instance.PlayerState.SpendCurrency(currencyDefinition, -packet.DeltaAmount);
             else
-                SceneContext.Instance.PlayerState.AddCurrency(currencyDefinition, difference, packet.ShowUINotification);
+                SceneContext.Instance.PlayerState.AddCurrency(currencyDefinition, packet.DeltaAmount, packet.ShowUINotification);
         });
+
+        var acceptedAmount = SceneContext.Instance.PlayerState.GetCurrency(currencyDefinition);
+        packet.PreviousAmount = hostAmount;
+        packet.DeltaAmount = acceptedAmount - hostAmount;
+        packet.NewAmount = acceptedAmount;
 
         Main.Server.SendToAllExcept(packet, clientEp);
     }
+
+    private static bool TryGetCurrency(byte currencyType, out ICurrency currencyDefinition)
+    {
+        currencyDefinition = null!;
+
+        var currencies = GameContext.Instance.LookupDirector._currencyList._currencies;
+        var currencyIndex = currencyType - 1;
+        if (currencyIndex < 0 || currencyIndex >= currencies.Count)
+            return false;
+
+        var currency = currencies[currencyIndex];
+        if (!currency)
+            return false;
+
+        currencyDefinition = currency.Cast<ICurrency>();
+        return currencyDefinition != null;
+    }
+
+    private static void SendHostAmount(byte currencyType, int hostAmount, bool showUiNotification, IPEndPoint clientEp)
+    {
+        Main.Server.SendToClient(new CurrencyPacket
+        {
+            CurrencyType = currencyType,
+            NewAmount = hostAmount,
+            PreviousAmount = hostAmount,
+            DeltaAmount = 0,
+            ShowUINotification = showUiNotification,
+        }, clientEp);
+    }
+
+    private string DescribeClient(IPEndPoint clientEp)
+        => clientManager.TryGetClient(clientEp, out var client) && client != null
+            ? $"{client.PlayerId} ({clientEp})"
+            : clientEp.ToString();
 }

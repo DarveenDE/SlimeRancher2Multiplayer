@@ -26,9 +26,19 @@ public sealed class RefineryItemCountsHandler : BasePacketHandler<RefineryItemCo
         }
 
         if (!applied)
+        {
+            SrLogger.LogWarning(
+                $"Rejected refinery item count update from {DescribeClient(senderEndPoint)}: items={packet.Items.Count}.",
+                SrLogTarget.Both);
             return;
+        }
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
+
+    private string DescribeClient(IPEndPoint senderEndPoint)
+        => clientManager.TryGetClient(senderEndPoint, out var client) && client != null
+            ? $"{client.PlayerId} ({senderEndPoint})"
+            : senderEndPoint.ToString();
 }

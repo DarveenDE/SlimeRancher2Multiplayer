@@ -15,9 +15,19 @@ public sealed class GordoFeedHandler : BasePacketHandler<GordoFeedPacket>
     protected override void Handle(GordoFeedPacket packet, IPEndPoint clientEp)
     {
         if (!WorldEventStateSyncManager.ApplyGordoFeed(packet, "server gordo feed"))
+        {
+            SrLogger.LogWarning(
+                $"Rejected gordo feed update from {DescribeClient(clientEp)}: gordo='{packet.ID}', food={packet.NewFoodCount}/{packet.RequiredFoodCount}, type={packet.GordoType}.",
+                SrLogTarget.Both);
             return;
+        }
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, clientEp);
     }
+
+    private string DescribeClient(IPEndPoint clientEp)
+        => clientManager.TryGetClient(clientEp, out var client) && client != null
+            ? $"{client.PlayerId} ({clientEp})"
+            : clientEp.ToString();
 }

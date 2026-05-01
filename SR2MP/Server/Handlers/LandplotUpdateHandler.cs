@@ -15,9 +15,19 @@ public sealed class LandPlotUpdateHandler : BasePacketHandler<LandPlotUpdatePack
     protected override void Handle(LandPlotUpdatePacket packet, IPEndPoint clientEp)
     {
         if (!WorldEventStateSyncManager.ApplyLandPlotUpdate(packet, "server land plot update"))
+        {
+            SrLogger.LogWarning(
+                $"Rejected land plot update from {DescribeClient(clientEp)}: plot='{packet.ID}', isUpgrade={packet.IsUpgrade}, plotType={packet.PlotType}, upgrade={packet.PlotUpgrade}.",
+                SrLogTarget.Both);
             return;
+        }
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, clientEp);
     }
+
+    private string DescribeClient(IPEndPoint clientEp)
+        => clientManager.TryGetClient(clientEp, out var client) && client != null
+            ? $"{client.PlayerId} ({clientEp})"
+            : clientEp.ToString();
 }

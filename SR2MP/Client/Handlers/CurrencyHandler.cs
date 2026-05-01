@@ -13,6 +13,12 @@ public sealed class CurrencyHandler : BaseClientPacketHandler<CurrencyPacket>
 
     protected override void Handle(CurrencyPacket packet)
     {
+        if (packet.NewAmount < 0)
+        {
+            SrLogger.LogWarning($"Ignoring currency update for type {packet.CurrencyType}; target amount {packet.NewAmount} is invalid.", SrLogTarget.Both);
+            return;
+        }
+
         var currencies = GameContext.Instance.LookupDirector._currencyList._currencies;
         var currencyIndex = packet.CurrencyType - 1;
         if (currencyIndex < 0 || currencyIndex >= currencies.Count)

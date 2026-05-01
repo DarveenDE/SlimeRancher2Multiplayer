@@ -18,7 +18,12 @@ public sealed class GardenPlantHandler : BasePacketHandler<GardenPlantPacket>
         try
         {
             if (!GardenPlotSyncManager.ApplyRemoteState(packet.ID, packet.HasCrop, packet.ActorType, "server garden plant"))
+            {
+                SrLogger.LogWarning(
+                    $"Rejected garden plant update from {DescribeClient(clientEp)}: plot='{packet.ID}', hasCrop={packet.HasCrop}, actorType={packet.ActorType}.",
+                    SrLogTarget.Both);
                 return;
+            }
         }
         finally { handlingPacket = false; }
 
@@ -41,4 +46,9 @@ public sealed class GardenPlantHandler : BasePacketHandler<GardenPlantPacket>
         if (GardenGrowthSyncManager.TryCreateSnapshot(plot, plotId, out var growthPacket))
             Main.Server.SendToAll(growthPacket);
     }
+
+    private string DescribeClient(IPEndPoint clientEp)
+        => clientManager.TryGetClient(clientEp, out var client) && client != null
+            ? $"{client.PlayerId} ({clientEp})"
+            : clientEp.ToString();
 }

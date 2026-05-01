@@ -15,9 +15,19 @@ public sealed class GordoBurstHandler : BasePacketHandler<GordoBurstPacket>
     protected override void Handle(GordoBurstPacket packet, IPEndPoint clientEp)
     {
         if (!WorldEventStateSyncManager.ApplyGordoBurst(packet, "server gordo burst"))
+        {
+            SrLogger.LogWarning(
+                $"Rejected gordo burst update from {DescribeClient(clientEp)}: gordo='{packet.ID}'.",
+                SrLogTarget.Both);
             return;
+        }
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, clientEp);
     }
+
+    private string DescribeClient(IPEndPoint clientEp)
+        => clientManager.TryGetClient(clientEp, out var client) && client != null
+            ? $"{client.PlayerId} ({clientEp})"
+            : clientEp.ToString();
 }

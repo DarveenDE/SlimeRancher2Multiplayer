@@ -15,9 +15,19 @@ public sealed class AccessDoorHandler : BasePacketHandler<AccessDoorPacket>
     protected override void Handle(AccessDoorPacket packet, IPEndPoint senderEndPoint)
     {
         if (!WorldEventStateSyncManager.ApplyAccessDoorState(packet, "server access door"))
+        {
+            SrLogger.LogWarning(
+                $"Rejected access door update from {DescribeClient(senderEndPoint)}: door='{packet.ID}', state={packet.State}.",
+                SrLogTarget.Both);
             return;
+        }
 
         packet.IsRepairSnapshot = false;
         Main.Server.SendToAllExcept(packet, senderEndPoint);
     }
+
+    private string DescribeClient(IPEndPoint senderEndPoint)
+        => clientManager.TryGetClient(senderEndPoint, out var client) && client != null
+            ? $"{client.PlayerId} ({senderEndPoint})"
+            : senderEndPoint.ToString();
 }
