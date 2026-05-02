@@ -65,6 +65,8 @@ public enum PacketType : byte
     ResyncRequest = 60,           // Client -> Server                                                                   Client requests a host repair snapshot
     SubsystemSnapshot = 61,       // Server -> Client                                                                   Generic subsystem snapshot (Initial-Sync or Repair)
     PlayerLoopSound = 62,         // Both Ways                                                                          Player-attached looping sounds
+    PlayerVacpackState = 63,      // Both Ways                                                                          Vacpack held-item, active slot and water level
+    MapFogReveal = 64,            // Both Ways                                                                          Live fog-of-war reveal (position + radius)
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

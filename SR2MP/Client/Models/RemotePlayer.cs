@@ -22,5 +22,10 @@ public sealed class RemotePlayer
     public float LookY { get; set; }
     public float LastLookY { get; set; }
 
+    // Vacpack visible state
+    public int VacpackHeldIdentType { get; set; }
+    public int VacpackActiveSlot { get; set; }
+    public byte VacpackWaterLevel { get; set; }
+
     public RemotePlayer(string playerId) => PlayerId = playerId;
 }

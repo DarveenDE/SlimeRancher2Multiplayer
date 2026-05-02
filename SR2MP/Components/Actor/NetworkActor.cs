@@ -39,6 +39,11 @@ public sealed class NetworkActor : MonoBehaviour
     private Quaternion lastSentRotation;
     private Vector3 lastSentVelocity;
     private float4 lastSentEmotions;
+    private byte lastSentMoodFlags;
+
+    private const float HungryThreshold = 0.5f;
+    private const float AgitatedThreshold = 0.5f;
+    private const float SleepingThreshold = 0.7f;
 
     private ActorId _cachedActorId;
     private bool _actorIdCached;
@@ -336,14 +341,15 @@ public sealed class NetworkActor : MonoBehaviour
 
                 var currentVelocity = rigidbody ? rigidbody.velocity : Vector3.zero;
                 var currentEmotions = EmotionsFloat;
+                var currentMoodFlags = ComputeMoodFlags(currentEmotions);
 
-                if (!ShouldSendUpdate(currentPosition, currentRotation, currentVelocity, currentEmotions))
+                if (!ShouldSendUpdate(currentPosition, currentRotation, currentVelocity, currentEmotions, currentMoodFlags))
                 {
                     PerformanceDiagnostics.RecordNetworkActorUnchangedTick();
                     return;
                 }
 
-                RememberSentUpdate(currentPosition, currentRotation, currentVelocity, currentEmotions);
+                RememberSentUpdate(currentPosition, currentRotation, currentVelocity, currentEmotions, currentMoodFlags);
                 PerformanceDiagnostics.RecordNetworkActorPacketCreated();
 
                 var packet = new ActorUpdatePacket
@@ -352,7 +358,8 @@ public sealed class NetworkActor : MonoBehaviour
                     Position = currentPosition,
                     Rotation = currentRotation,
                     Velocity = currentVelocity,
-                    Emotions = currentEmotions
+                    Emotions = currentEmotions,
+                    MoodFlags = currentMoodFlags
                 };
 
                 Main.SendToAllOrServer(packet);
@@ -375,7 +382,7 @@ public sealed class NetworkActor : MonoBehaviour
         }
     }
 
-    private bool ShouldSendUpdate(Vector3 position, Quaternion rotation, Vector3 velocity, float4 emotions)
+    private bool ShouldSendUpdate(Vector3 position, Quaternion rotation, Vector3 velocity, float4 emotions, byte moodFlags)
     {
         if (!hasSentUpdate)
             return true;
@@ -389,19 +396,33 @@ public sealed class NetworkActor : MonoBehaviour
         if (Mathf.Abs(Quaternion.Dot(rotation, lastSentRotation)) < RotationDotThreshold)
             return true;
 
+        if (moodFlags != lastSentMoodFlags)
+            return true;
+
         return Math.Abs(emotions.x - lastSentEmotions.x) >= EmotionUpdateThreshold
             || Math.Abs(emotions.y - lastSentEmotions.y) >= EmotionUpdateThreshold
             || Math.Abs(emotions.z - lastSentEmotions.z) >= EmotionUpdateThreshold
             || Math.Abs(emotions.w - lastSentEmotions.w) >= EmotionUpdateThreshold;
     }
 
-    private void RememberSentUpdate(Vector3 position, Quaternion rotation, Vector3 velocity, float4 emotions)
+    private void RememberSentUpdate(Vector3 position, Quaternion rotation, Vector3 velocity, float4 emotions, byte moodFlags)
     {
         hasSentUpdate = true;
         lastSentPosition = position;
         lastSentRotation = rotation;
         lastSentVelocity = velocity;
         lastSentEmotions = emotions;
+        lastSentMoodFlags = moodFlags;
+    }
+
+    private byte ComputeMoodFlags(float4 emotions)
+    {
+        byte flags = 0;
+        if (emotions.x >= HungryThreshold)  flags |= 0x01; // hungry
+        if (emotions.y >= AgitatedThreshold) flags |= 0x02; // agitated
+        if (emotions.z >= SleepingThreshold) flags |= 0x04; // sleeping
+        // eating (0x08) requires SlimeEat integration — not yet implemented
+        return flags;
     }
 
     private void SetRigidbodyState(bool enableConstraints)

@@ -11,6 +11,8 @@ public struct ActorUpdatePacket : IPacket, IActorPacket
     public Quaternion Rotation { get; set; }
     public Vector3 Position { get; set; }
     public Vector3 Velocity { get; set; }
+    /// <summary>Discrete slime-state flags: bit 0=hungry, 1=agitated, 2=sleeping, 3=eating.</summary>
+    public byte MoodFlags { get; set; }
 
     public readonly PacketType Type => PacketType.ActorUpdate;
     public readonly PacketReliability Reliability => PacketReliability.Unreliable;
@@ -22,6 +24,7 @@ public struct ActorUpdatePacket : IPacket, IActorPacket
         writer.WriteQuaternion(Rotation);
         writer.WriteVector3(Velocity);
         writer.WriteFloat4(Emotions);
+        writer.WriteByte(MoodFlags);
     }
 
     public void Deserialise(PacketReader reader)
@@ -31,5 +34,6 @@ public struct ActorUpdatePacket : IPacket, IActorPacket
         Rotation = reader.ReadQuaternion();
         Velocity = reader.ReadVector3();
         Emotions = reader.ReadFloat4();
+        MoodFlags = reader.ReadByte();
     }
 }

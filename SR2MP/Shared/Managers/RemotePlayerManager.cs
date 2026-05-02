@@ -77,6 +77,17 @@ public sealed class RemotePlayerManager
         Main.SendToAllOrServer(updatePacket);
     }
 
+    public void UpdateVacpackState(string playerId, int heldIdentType, int activeSlot, byte waterLevel)
+    {
+        if (!players.TryGetValue(playerId, out var player))
+            return;
+
+        player.VacpackHeldIdentType = heldIdentType;
+        player.VacpackActiveSlot = activeSlot;
+        player.VacpackWaterLevel = waterLevel;
+        OnPlayerUpdated?.Invoke(playerId, player);
+    }
+
     public void UpdatePlayer(
         string playerId,
         Vector3 position,

@@ -6,6 +6,8 @@ using SR2E.Utils;
 using SR2MP.Client.Models;
 using SR2MP.Components.FX;
 using SR2MP.Components.Utils;
+using SR2MP.Packets.Player;
+using SR2MP.Packets.Utils;
 using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
 
@@ -80,6 +82,14 @@ public partial class NetworkPlayer : MonoBehaviour
 
     public bool IsLocal { get; internal set; }
 
+    // Vacpack state tracking (local player only)
+    private int _lastSentHeldIdentType = -1;
+    private int _lastSentActiveSlot = -1;
+    private byte _lastSentWaterLevel = 255;
+
+    // Vacpack display tracking (remote players only)
+    private int _lastDisplayedVacpackHeldId = -1;
+
     private static TMP_FontAsset GetFont(string fontName) => Resources.FindObjectsOfTypeAll<TMP_FontAsset>().FirstOrDefault(x => x.name == fontName)!;
 
     public void SetUsername(string username)
@@ -96,6 +106,8 @@ public partial class NetworkPlayer : MonoBehaviour
             usernamePanel.gameObject.AddComponent<TransformLookAtCamera>().targetTransform =
                 usernamePanel.transform;
         }
+
+        _lastDisplayedVacpackHeldId = -1;
     }
 
     private void Awake()
@@ -201,6 +213,8 @@ public partial class NetworkPlayer : MonoBehaviour
                 sprinting: animator.GetBool(Sprinting),
                 lookY: camera.eulerAngles.x
             );
+
+            TrySendVacpackState();
         }
         else
         {
@@ -235,7 +249,78 @@ public partial class NetworkPlayer : MonoBehaviour
             animator.SetFloat(HorizontalSpeed, model.HorizontalSpeed);
             animator.SetFloat(ForwardSpeed, model.ForwardSpeed);
             animator.SetBool(Sprinting, model.Sprinting);
+
+            TryUpdateVacpackDisplay();
         }
+    }
+
+    private void TrySendVacpackState()
+    {
+        try
+        {
+            var itemCtrl = GetComponent<PlayerItemController>();
+            if (!itemCtrl) return;
+
+            var vac = itemCtrl._vacuumItem;
+            if (!vac) return;
+
+            var held = vac._held;
+            var identComp = held ? held.GetComponent<Identifiable>() : null;
+            var identType = identComp != null ? identComp.identType : null;
+            var heldIdentId = identType != null ? NetworkActorManager.GetPersistentID(identType) : 0;
+
+            // ActiveSlot and WaterLevel require SR2 API verification; send 0 until confirmed.
+            // TODO: replace 0 with itemCtrl.<SelectedSlotProperty> once name is known.
+            const int activeSlot = 0;
+            const byte waterLevel = 0;
+
+            if (heldIdentId == _lastSentHeldIdentType
+                && activeSlot == _lastSentActiveSlot
+                && waterLevel == _lastSentWaterLevel)
+                return;
+
+            _lastSentHeldIdentType = heldIdentId;
+            _lastSentActiveSlot = activeSlot;
+            _lastSentWaterLevel = waterLevel;
+
+            var playerId = Main.Client.IsConnected ? Main.Client.OwnPlayerId : "HOST";
+            var packet = new PlayerVacpackStatePacket
+            {
+                PlayerId = playerId,
+                HeldIdentType = heldIdentId,
+                ActiveSlot = activeSlot,
+                WaterLevel = waterLevel,
+            };
+            Main.SendToAllOrServer(packet);
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogDebug($"TrySendVacpackState error: {ex.Message}", SrLogTarget.Main);
+        }
+    }
+
+    private void TryUpdateVacpackDisplay()
+    {
+        var heldId = model!.VacpackHeldIdentType;
+        if (heldId == _lastDisplayedVacpackHeldId)
+            return;
+
+        _lastDisplayedVacpackHeldId = heldId;
+
+        if (!usernamePanel)
+            return;
+
+        if (heldId == 0)
+        {
+            usernamePanel.text = model.Username;
+            return;
+        }
+
+        var heldName = actorManager.ActorTypes.TryGetValue(heldId, out var identType)
+            ? identType.name
+            : $"#{heldId}";
+
+        usernamePanel.text = $"{model.Username}\n<size=70%><alpha=#AA>{heldName}</size>";
     }
 
     private void ReloadMeshTransform()

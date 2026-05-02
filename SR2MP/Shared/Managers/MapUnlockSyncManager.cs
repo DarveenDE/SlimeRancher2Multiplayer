@@ -85,6 +85,36 @@ public static class MapUnlockSyncManager
     public static bool ApplyUnlock(MapUnlockPacket packet, string source)
         => ApplyUnlock(packet.NodeID, source);
 
+    // Cached at first call; null means the method doesn't exist in the current SR2 build.
+    private static System.Reflection.MethodInfo? _revealFogMethod;
+    private static bool _revealFogMethodResolved;
+
+    public static void ApplyFogReveal(Vector3 position, float radius)
+    {
+        var mapDirector = SceneContext.Instance?.MapDirector;
+        if (!mapDirector) return;
+
+        if (!_revealFogMethodResolved)
+        {
+            _revealFogMethod = typeof(MapDirector).GetMethod("RevealFog",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
+                null, new[] { typeof(Vector3), typeof(float) }, null);
+            _revealFogMethodResolved = true;
+        }
+
+        if (_revealFogMethod != null)
+        {
+            RunWithHandlingPacket(() => _revealFogMethod.Invoke(mapDirector, new object[] { position, radius }));
+        }
+        else
+        {
+            // RevealFog not in Il2Cpp bindings for this SR2 build — fall back to visual refresh.
+            // LIMITATION: position/radius are ignored; only already-unlocked zones are re-rendered.
+            RefreshVisibleFogElements();
+            QueueVisualRefresh();
+        }
+    }
+
     public static bool ApplyUnlock(string nodeId, string source)
     {
         if (string.IsNullOrWhiteSpace(nodeId))

@@ -70,7 +70,14 @@ public static class ActorUpdateSyncManager
         }
 
         if (slime != null)
-            networkComponent.GetComponent<SlimeEmotions>().SetAll(packet.Emotions);
+        {
+            var slimeEmotions = networkComponent.GetComponent<SlimeEmotions>();
+            if (slimeEmotions != null)
+            {
+                slimeEmotions.SetAll(packet.Emotions);
+                ApplyMoodFlags(slimeEmotions, packet.MoodFlags);
+            }
+        }
 
         return true;
     }
@@ -104,6 +111,18 @@ public static class ActorUpdateSyncManager
             // causes periodic ~70 ms main-thread spikes and a burst of 11 reliable packets to the
             // client every ~15 s, which is the primary cause of the observed 10-second client freeze.
             onRepairNeeded: null);
+    }
+
+    private static void ApplyMoodFlags(SlimeEmotions slimeEmotions, byte moodFlags)
+    {
+        // Bit-flags provide discrete state hints for animation triggers beyond the continuous
+        // emotion floats. Currently we use them as an extra nudge to override the emotion model
+        // so that threshold-based animations (e.g. hunger bark) reflect the owner's state.
+        var e = slimeEmotions._model.Emotions;
+        if ((moodFlags & 0x01) != 0 && e.x < 0.5f) e.x = 0.5f;   // hungry
+        if ((moodFlags & 0x02) != 0 && e.y < 0.5f) e.y = 0.5f;   // agitated
+        if ((moodFlags & 0x04) != 0 && e.z < 0.7f) e.z = 0.7f;   // sleeping
+        slimeEmotions._model.Emotions = e;
     }
 
     private sealed class PendingActorUpdate
