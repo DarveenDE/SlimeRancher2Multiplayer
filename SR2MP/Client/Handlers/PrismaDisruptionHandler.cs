@@ -11,5 +11,5 @@ public sealed class PrismaDisruptionHandler : BaseClientPacketHandler<PrismaDisr
         : base(client, playerManager) { }
 
     protected override void Handle(PrismaDisruptionPacket packet)
-        => PrismaDisruptionSyncManager.Apply(packet.DisruptionLevel);
+        => PrismaDisruptionSyncManager.Apply(packet);
 }

@@ -2,7 +2,7 @@ namespace SR2MP.Shared.Utils;
 
 public static class NetworkProtocol
 {
-    public const int ProtocolVersion = 1;
+    public const int ProtocolVersion = 2;
 
     public static string ModVersion => global::BuildInfo.Version;
     public static string RequiredGameVersion => global::BuildInfo.ExactRequiredGameVersion;

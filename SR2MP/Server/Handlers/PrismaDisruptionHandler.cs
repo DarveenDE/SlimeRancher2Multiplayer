@@ -20,7 +20,7 @@ public sealed class PrismaDisruptionHandler : BasePacketHandler<PrismaDisruption
         if (!CheckAuthority(packet, client.PlayerId, clientEp).IsAllowed)
             return;
 
-        PrismaDisruptionSyncManager.Apply(packet.DisruptionLevel);
+        PrismaDisruptionSyncManager.Apply(packet);
         Main.Server.SendToAllExcept(packet, clientEp);
     }
 }

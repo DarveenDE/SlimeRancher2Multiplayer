@@ -3,23 +3,18 @@ using SR2MP.Packets.Geyser;
 
 namespace SR2MP.Patches.Geyser;
 
-[HarmonyPatch(typeof(Il2Cpp.Geyser._RunGeyser_d__30), nameof(Il2Cpp.Geyser._RunGeyser_d__30.MoveNext))]
+[HarmonyPatch(typeof(Il2Cpp.Geyser), nameof(Il2Cpp.Geyser.RunGeyser))]
 public static class OnGeyserFire
 {
-    public static void Prefix(Il2Cpp.Geyser._RunGeyser_d__30 __instance)
+    public static void Prefix(Il2Cpp.Geyser __instance, float duration)
     {
-        if (__instance.__1__state != 0)
-            return;
+        if (handlingPacket) return;
+        if (!Main.Server.IsRunning() && !Main.Client.IsConnected) return;
 
-        if (handlingPacket)
-            return;
-        
-        var packet = new GeyserTriggerPacket
+        Main.SendToAllOrServer(new GeyserTriggerPacket
         {
-             ObjectPath = __instance.__4__this.gameObject.GetGameObjectPath(),
-             Duration = __instance.duration
-        };
-
-        Main.SendToAllOrServer(packet);
+            ObjectPath = __instance.gameObject.GetGameObjectPath(),
+            Duration = duration,
+        });
     }
 }
