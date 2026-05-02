@@ -68,6 +68,7 @@ public enum PacketType : byte
     PlayerVacpackState = 63,      // Both Ways                                                                          Vacpack held-item, active slot and water level
     MapFogReveal = 64,            // Both Ways                                                                          Live fog-of-war reveal (position + radius)
     ActorFeral = 65,              // Both Ways                                                                          Slime becomes Feral/Tarr (in-place mutation)
+    PrismaDisruption = 66,        // Both Ways — Prisma disruption level changed (Radiant Slime Sanctuary / Labyrinth Core)
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

@@ -133,6 +133,7 @@ public static class PacketAuthority
             Define(PacketType.PlayerVacpackState, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.ReliableOrdered, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
             Define(PacketType.MapFogReveal, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotCovered),
             Define(PacketType.ActorFeral, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ValidateApplyAndBroadcast, PacketStateCoverage.NotCovered, PacketStateCoverage.NotCovered),
+            Define(PacketType.PrismaDisruption, ClientPacketRule.Allowed, PacketDirection.Bidirectional, PacketReliabilityProfile.Reliable, HostPacketAction.ApplyAndBroadcast, PacketStateCoverage.Covered, PacketStateCoverage.Covered),
             Define(PacketType.ReservedAck, ClientPacketRule.InternalOnly, PacketDirection.Internal, PacketReliabilityProfile.Unreliable, HostPacketAction.InternalTransport, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
             Define(PacketType.ReservedDoNotUse, ClientPacketRule.Reserved, PacketDirection.Reserved, PacketReliabilityProfile.None, HostPacketAction.RejectAtIngress, PacketStateCoverage.NotApplicable, PacketStateCoverage.NotApplicable),
         }.ToDictionary(definition => definition.Type);

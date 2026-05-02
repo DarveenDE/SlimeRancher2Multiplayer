@@ -114,6 +114,7 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
         SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.CommStation);
         SendMapPacket(clientEp, pendingInitialPackets);
         SendAccessDoorsPacket(clientEp, pendingInitialPackets);
+        SendSubsystemSnapshot(clientEp, SR2MP.Shared.Sync.SubsystemIds.PrismaDisruption);
         SendPricesPacket(clientEp, pendingInitialPackets);
 
         SrLogger.LogMessage($"Initial sync started for player {playerId}",

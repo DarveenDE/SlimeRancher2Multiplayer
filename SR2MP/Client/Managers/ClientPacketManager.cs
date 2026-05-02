@@ -60,6 +60,7 @@ public sealed class ClientPacketManager
         registry.Register(SR2MP.Shared.Sync.GardenResourceAttachSubsystem.Instance);
         registry.Register(SR2MP.Shared.Sync.RefinerySubsystem.Instance);
         registry.Register(SR2MP.Shared.Sync.ResourceNodeSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.PrismaDisruptionSubsystem.Instance);
     }
 
     public void HandlePacket(byte[] data, IPEndPoint serverEp)

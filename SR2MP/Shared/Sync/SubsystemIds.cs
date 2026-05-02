@@ -10,5 +10,6 @@ public static class SubsystemIds
     public const byte GardenResourceAttach = 5;
     public const byte Refinery             = 6;
     public const byte ResourceNode         = 7;
-    // Next available: 8
+    public const byte PrismaDisruption     = 8;
+    // Next available: 9
 }

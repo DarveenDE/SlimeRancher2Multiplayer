@@ -145,6 +145,7 @@ public static class WorldStateRepairManager
         TimedSend("resource nodes", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.ResourceNode));
         TimedSend("gordos", () => SendGordoSnapshots(gameModel, stats));
         TimedSend("puzzle state", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.PuzzleState));
+        TimedSend("prisma disruption", () => BroadcastSubsystemSnapshot(SR2MP.Shared.Sync.SubsystemIds.PrismaDisruption));
 
         SrLogger.LogDebug(
             $"Repair snapshot sent: currency={stats.CurrencyValues}, pedia={stats.PediaEntries}, playerUpgrades={stats.PlayerUpgrades}, switches={stats.Switches}, doors={stats.AccessDoors}, maps={stats.MapUnlocks}, gordos={stats.Gordos}.",

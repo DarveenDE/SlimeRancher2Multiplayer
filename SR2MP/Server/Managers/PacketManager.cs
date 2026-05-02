@@ -252,5 +252,6 @@ public sealed class PacketManager
         registry.Register(SR2MP.Shared.Sync.GardenResourceAttachSubsystem.Instance);
         registry.Register(SR2MP.Shared.Sync.RefinerySubsystem.Instance);
         registry.Register(SR2MP.Shared.Sync.ResourceNodeSubsystem.Instance);
+        registry.Register(SR2MP.Shared.Sync.PrismaDisruptionSubsystem.Instance);
     }
 }
