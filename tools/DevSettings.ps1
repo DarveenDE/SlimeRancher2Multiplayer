@@ -3,6 +3,7 @@ $Script:ProjectPath = Join-Path $Script:RepoRoot "SR2MP\SR2MP.csproj"
 $Script:ProjectDir = Split-Path -Parent $Script:ProjectPath
 $Script:LibrariesDir = Join-Path $Script:ProjectDir "libraries"
 $Script:ArtifactsDir = Join-Path $Script:RepoRoot "artifacts"
+$Script:ReferenceDumpDir = Join-Path $Script:RepoRoot "reference-dumps"
 $Script:GameDir = if ($env:SR2_GAME_DIR) {
     $env:SR2_GAME_DIR
 } else {

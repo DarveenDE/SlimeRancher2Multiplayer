@@ -126,3 +126,26 @@ public sealed class PerformanceDiagnosticsCommand : SR2ECommand
         }
     }
 }
+
+public sealed class ReferenceDumpCommand : SR2ECommand
+{
+    public override string ID => "refdump";
+    public override string Usage => "refdump [outputDir]";
+
+    public override bool Execute(string[] args)
+    {
+        try
+        {
+            args ??= Array.Empty<string>();
+            var outputDir = args.Length > 0 ? string.Join(" ", args) : null;
+            var path = RuntimeReferenceDump.Write(outputDir);
+            SrLogger.LogMessage($"Runtime reference dump written to: {path}", SrLogTarget.Both);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogError($"Runtime reference dump failed: {ex}", SrLogTarget.Both);
+            return true;
+        }
+    }
+}

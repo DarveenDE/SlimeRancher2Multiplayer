@@ -46,9 +46,25 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Install-TestBuil
 
 The smoke test launches the game, waits, then closes it and prints relevant MelonLoader log lines.
 
+## Reference Dumps
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Generate-ReferenceDump.ps1
+```
+
+This writes local API reference dumps for `Assembly-CSharp.dll` and `SR2E.dll` to `reference-dumps\api`. The output folder is ignored by Git and can be regenerated whenever the game or SR2E reference DLLs change.
+
+Runtime lookup tables can also be dumped from inside the game after the save context has loaded:
+
+```text
+refdump
+```
+
+By default this writes to `UserData\SR2MP\reference-dumps`. Set `SR2MP_REFERENCE_DUMP_DIR` or pass an output path to write elsewhere, for example `refdump D:\dev\SlimeRancher2Multiplayer\reference-dumps\runtime`.
+
 ## Notes
 
-`SR2MP\libraries` and `artifacts` are ignored by Git. They are local machine state, not source code.
+`SR2MP\libraries`, `artifacts`, and `reference-dumps` are ignored by Git. They are local machine state, not source code.
 
 The local compatibility target has been moved to Slime Rancher 2 `1.2.0`. If Steam updates the game again, run the smoke test and check `MelonLoader\Latest.log` before making gameplay changes.
 

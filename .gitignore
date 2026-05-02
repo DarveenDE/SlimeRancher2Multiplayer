@@ -422,6 +422,7 @@ ExternalAnnotations/
 
 # Local SR2MP development state
 /artifacts/
+/reference-dumps/
 /SR2MP/bin/
 /SR2MP/obj/
 /SR2MP/libraries/
