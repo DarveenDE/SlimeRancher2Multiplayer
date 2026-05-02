@@ -1,5 +1,6 @@
 using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.Event;
+using Il2CppMonomiPark.SlimeRancher.Map;
 using Il2CppMonomiPark.SlimeRancher.UI.Map;
 using MelonLoader;
 using SR2MP.Packets.World;

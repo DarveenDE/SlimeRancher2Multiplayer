@@ -228,6 +228,9 @@ public sealed class PacketManager
         // ActorUnload: only the registered owner may unload.
         pipeline.Register(PacketType.ActorUnload, new OwnerOnlyRule());
 
+        // ActorFeral: only the registered owner may declare their slime feral.
+        pipeline.Register(PacketType.ActorFeral, new OwnerOnlyRule());
+
         // CurrencyAdjust: client must send a current baseline; stale requests are rejected.
         pipeline.Register(PacketType.CurrencyAdjust, new CurrencyBaselineRule());
 

@@ -2,6 +2,7 @@ using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using Il2CppMonomiPark.SlimeRancher.World;
 using MelonLoader;
+using SR2MP.Packets.Actor;
 using SR2MP.Packets.Loading;
 using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
@@ -188,6 +189,11 @@ public sealed class ActorsLoadHandler : BaseClientPacketHandler<InitialActorsPac
                     {
                         failed++;
                     }
+
+                    if (actor.IsFeral)
+                        ActorFeralSyncManager.ApplyOrQueue(
+                            new ActorFeralPacket { ActorId = new ActorId(actor.ActorId) },
+                            "initial load");
 
                     ActorUpdateSyncManager.ApplyPendingForActor(actor.ActorId);
                     GardenGrowthSyncManager.ApplyPendingForActor(actor.ActorId);

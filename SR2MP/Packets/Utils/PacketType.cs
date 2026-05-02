@@ -67,6 +67,7 @@ public enum PacketType : byte
     PlayerLoopSound = 62,         // Both Ways                                                                          Player-attached looping sounds
     PlayerVacpackState = 63,      // Both Ways                                                                          Vacpack held-item, active slot and water level
     MapFogReveal = 64,            // Both Ways                                                                          Live fog-of-war reveal (position + radius)
+    ActorFeral = 65,              // Both Ways                                                                          Slime becomes Feral/Tarr (in-place mutation)
     ReservedAck = 254,
     ReservedDoNotUse = 255,
 }

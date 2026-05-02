@@ -12,6 +12,7 @@ public sealed class InitialActorsPacket : IPacket
         public int ActorType { get; set; }
         public int Scene { get; set; }
         public bool IsPrePlaced { get; set; }
+        public bool IsFeral { get; set; }
 
         public readonly void Serialise(PacketWriter writer)
         {
@@ -21,6 +22,7 @@ public sealed class InitialActorsPacket : IPacket
             writer.WriteInt(ActorType);
             writer.WriteInt(Scene);
             writer.WriteBool(IsPrePlaced);
+            writer.WriteBool(IsFeral);
         }
 
         public void Deserialise(PacketReader reader)
@@ -31,6 +33,7 @@ public sealed class InitialActorsPacket : IPacket
             ActorType = reader.ReadInt();
             Scene = reader.ReadInt();
             IsPrePlaced = reader.ReadBool();
+            IsFeral = reader.ReadBool();
         }
     }
 

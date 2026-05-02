@@ -47,6 +47,7 @@ public sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
         ActorUpdateSyncManager.ApplyPendingForActor(packet.ActorId.Value);
         GardenGrowthSyncManager.ApplyPendingForActor(packet.ActorId.Value);
         GardenResourceAttachSyncManager.ApplyPendingForActor(packet.ActorId.Value);
+        ActorFeralSyncManager.ApplyPendingForActor(packet.ActorId.Value);
     }
 
     private static bool IsGadgetType(int typeId)

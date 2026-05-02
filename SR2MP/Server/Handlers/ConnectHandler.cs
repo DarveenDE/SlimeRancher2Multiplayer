@@ -298,6 +298,9 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             var rotation = model?.lastRotation ?? gadgetModel?.GetRot() ?? Quaternion.identity;
             var position = gadgetModel?.GetPos() ?? actor.lastPosition;
 
+            var go = actor.GetGameObject();
+            var isFeral = go && go.GetComponent<SlimeFeral>() != null;
+
             entry = new InitialActorsPacket.Actor
             {
                 ActorId = actor.actorId.Value,
@@ -305,7 +308,8 @@ public sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
                 Position = position,
                 Rotation = rotation,
                 Scene = NetworkSceneManager.GetPersistentID(actor.sceneGroup),
-                IsPrePlaced = gadgetModel?.IsPrePlaced ?? false
+                IsPrePlaced = gadgetModel?.IsPrePlaced ?? false,
+                IsFeral = isFeral
             };
 
             return true;
